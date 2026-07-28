@@ -1,0 +1,37 @@
+{
+  "name": "clinica-psicologia",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "dev:web": "npm run dev --prefix web",
+    "build": "tsc -p tsconfig.json",
+    "build:web": "npm run build --prefix web",
+    "start": "node dist/main.js",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:seed": "tsx prisma/seed.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.3.0",
+    "@prisma/client": "^6.16.2",
+    "fastify": "^5.6.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.6",
+    "prisma": "^6.16.2",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

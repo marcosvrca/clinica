@@ -1,0 +1,112 @@
+---
+description: Referência de produto (regras, telas, UX) inspirada na Sintropia para o painel da clínica
+alwaysApply: true
+---
+
+# Referência de produto — Sintropia (inspiração)
+
+Fonte pública: [sintropia.app](https://sintropia.app/), [software para psicólogos](https://sintropia.app/software-para-psicologos/), [fatos](https://sintropia.app/fatos/).
+Produto logado: [sintropia.me](https://sintropia.me/) (sem acesso autenticado neste projeto).
+
+**Uso:** inspirar fluxo de negócio, IA, telas e tom de UX. **Não** copiar marca, nomes de produto (LUMA, Smart Notes, Sintropia), assets, copy literal nem UI proprietária pixel a pixel.
+
+## Princípio central
+
+A rotina do consultório é **um fluxo contínuo**, não ferramentas isoladas:
+
+1. **Preparar** — agenda, bloqueios, contexto do paciente
+2. **Registrar** — notas; áudio só com consentimento explícito
+3. **Revisar** — ler, ajustar e confirmar o que entra no prontuário
+4. **Continuar** — lembretes / WhatsApp objetivos e autorizados
+5. **Organizar** — sessões, pacotes e recebimentos ligados à agenda
+
+**Decisão profissional no centro.** IA e automações organizam; o psicólogo interpreta e confirma. Nada clínico definitivo sem revisão humana.
+
+## Módulos-alvo (mapa Sintropia → nosso produto)
+
+| Momento | Capacidade de referência | Status no clinica-psicologia |
+| --- | --- | --- |
+| Antes | Agenda (sessões + bloqueios), pacientes, contexto | Parcial: agenda/pacientes/agendar via API + bot |
+| Durante/depois | Notas de sessão; gravação/transcrição/resumo com consentimento | Não iniciado (prontuários placeholder) |
+| Revisão | Rascunho de evolução editável → confirmação → prontuário | Não iniciado |
+| Entre sessões | Lembretes WhatsApp (já há bot) | Parcial: bot agenda; lembretes de confirmação a evoluir |
+| Financeiro | Sessões, pacotes, recebimentos próximos da agenda | Placeholder leve |
+| Segurança | Auth, permissões, vínculo profissional–paciente, dados sensíveis | API key; evoluir para perfis e criptografia de campos clínicos |
+| Paciente | App/portal por convite (Hoje, diário, tarefas, escalas) | Fora de escopo imediato |
+
+Ordem de evolução sugerida (como a Sintropia pública): **núcleo** (pacientes, sessões, registros, agenda) → **financeiro** → **inteligência revisável + continuidade**.
+
+## Regras de negócio a espelhar
+
+### Agenda
+- Sessões e **bloqueios** no mesmo calendário
+- Filtros por dia / profissional / status
+- Slot futuro; conflito de horário = rejeitar
+- Antecedência mínima para cancelar/remarcar (já: `CANCEL_MIN_HOURS`)
+- Integração calendário externa = opcional e autorizada (não prioridade)
+
+### Pacientes
+- Cadastro ligado a telefone (WhatsApp) e dados básicos
+- Histórico de sessões e vínculo com profissional/clínica
+- Acesso a dados clínicos só com autenticação + permissão + vínculo
+
+### Sessão → registro
+- Toda sessão pode gerar notas
+- Gravação: **consentimento explícito** antes; material = apoio, não documento final
+- Transcrição/resumo = rascunho revisável
+
+### Prontuário / evolução
+- Rascunho sempre editável
+- **Nada entra no prontuário sem confirmação** do profissional
+- IA (se houver) estrutura áudio + notas + contexto → rascunho; nunca decide sozinha
+
+### Lembretes
+- WhatsApp: mensagens objetivas, configuráveis, com autorização
+- Não enviar conteúdo clínico sensível em lembretes
+
+### Financeiro
+- Valores/pacotes/recebimentos próximos da sessão/agenda
+- Não inventar compliance fiscal; foco operacional (pago / pendente / pacote)
+
+### Segurança e ética (CFP / LGPD)
+- Dados de saúde = sensíveis
+- Não vender dados; não treinar modelos com conteúdo clínico
+- Logs sem prontuário integral
+- Criptografia em campos clínicos quando existirem
+- Citar limites: nenhuma medida = risco zero
+
+## Telas / IA de informação (UX)
+
+Organizar o painel como **sistema de rotina do consultório**, não dashboard genérico:
+
+- **Shell:** sidebar (Dashboard, Pacientes, Agenda, Sessões, Financeiro, Prontuários, Relatórios, Configurações) — já alinhado ao Layout
+- **Agenda como entrada do dia:** visão clara do dia/semana; ações rápidas (agendar, cancelar, remarcar)
+- **Paciente:** lista + detalhe com contexto (próximas sessões, plano, status)
+- **Sessão:** do horário → registro → rascunho → confirmação
+- **Prontuário:** linha do tempo de evoluções confirmadas; rascunhos pendentes destacados
+- **Financeiro:** KPIs simples + lista ligada a sessões/pacotes
+- **Estados vazios e CTAs** que apontam para o próximo passo do fluxo (ex.: “Agendar”, “Revisar rascunho”)
+
+### Design (inspiração, não cópia)
+
+- Visual calmo, clínico, legível; hierarquia clara; pouco ruído
+- Manter tokens atuais em `web/src/index.css` (teal/azul, Plus Jakarta Sans) como base da marca **Clínica Mente em Equilíbrio / Bem Estar**
+- Evitar look genérico “AI purple”; evitar cards demais sem necessidade de interação
+- Calendário: eventos com cor por profissional/tipo (como demos públicas de agenda)
+- Mobile: painel usable no navegador; app paciente = fase futura
+
+## Ao implementar features
+
+1. Preferir ligar módulos ao **mesmo fluxo de sessão** (IDs compartilhados: patient ↔ appointment ↔ note/record ↔ payment).
+2. Qualquer IA: UI deve mostrar “aguardando revisão” e botão explícito de confirmar no prontuário.
+3. Consentimento de gravação = campo/estado obrigatório antes de gravar.
+4. Nomes internos sugeridos (evitar marcas alheias): `SessionNotes`, `EvolutionDraft`, `ClinicalRecord`, `Reminder`, `Package`, `Payment`.
+5. Em dúvida de prioridade: fortalecer agenda + pacientes + prontuário antes de IA avançada.
+
+## Fontes
+
+- https://sintropia.app/
+- https://sintropia.app/software-para-psicologos/
+- https://sintropia.app/fatos/
+- https://sintropia.app/sobre/
+- https://sintropia.app/por-que-sintropia/

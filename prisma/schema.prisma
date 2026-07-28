@@ -1,0 +1,157 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Clinic {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  phone     String?
+  timezone  String   @default("America/Sao_Paulo")
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  professionals   Professional[]
+  services        Service[]
+  patients        Patient[]
+  appointments    Appointment[]
+  clinicalRecords ClinicalRecord[]
+}
+
+model Professional {
+  id        String   @id @default(cuid())
+  clinicId  String
+  name      String
+  specialty String   @default("Psicologia")
+  crp       String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  clinic          Clinic           @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  weeklyHours     WeeklyHour[]
+  appointments    Appointment[]
+  services        ServiceProfessional[]
+  clinicalRecords ClinicalRecord[]
+
+  @@index([clinicId, active])
+}
+
+model WeeklyHour {
+  id             String @id @default(cuid())
+  professionalId String
+  /// 0=Dom ... 6=Sab
+  weekday        Int
+  startMinute    Int
+  endMinute      Int
+
+  professional Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+
+  @@index([professionalId, weekday])
+}
+
+model Service {
+  id              String  @id @default(cuid())
+  clinicId        String
+  name            String
+  description     String?
+  durationMinutes Int     @default(50)
+  priceCents      Int?
+  active          Boolean @default(true)
+
+  clinic        Clinic               @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  professionals ServiceProfessional[]
+  appointments  Appointment[]
+
+  @@index([clinicId, active])
+}
+
+model ServiceProfessional {
+  serviceId      String
+  professionalId String
+
+  service      Service      @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  professional Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+
+  @@id([serviceId, professionalId])
+}
+
+model Patient {
+  id        String   @id @default(cuid())
+  clinicId  String
+  phone     String
+  name      String?
+  email     String?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  clinic          Clinic           @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  appointments    Appointment[]
+  clinicalRecords ClinicalRecord[]
+
+  @@unique([clinicId, phone])
+  @@index([phone])
+}
+
+model Appointment {
+  id             String    @id @default(cuid())
+  clinicId       String
+  patientId      String
+  professionalId String
+  serviceId      String
+  startsAt       DateTime
+  endsAt         DateTime
+  status         String    @default("confirmed")
+  source         String    @default("whatsapp")
+  notes          String?
+  cancelledAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  clinic         Clinic          @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  patient        Patient         @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  professional   Professional    @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  service        Service         @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  clinicalRecord ClinicalRecord?
+
+  @@index([clinicId, startsAt, status])
+  @@index([professionalId, startsAt, status])
+  @@index([patientId, status, startsAt])
+}
+
+/// Evolução clínica: rascunho revisável → confirmação no prontuário.
+/// Nada entra como registro definitivo sem status "confirmed".
+model ClinicalRecord {
+  id               String    @id @default(cuid())
+  clinicId         String
+  patientId        String
+  professionalId   String
+  appointmentId    String?   @unique
+  /// draft | confirmed
+  status           String    @default("draft")
+  /// Observações livres da sessão
+  sessionNotes     String?
+  /// Rascunho / texto de evolução (editável até confirmar)
+  draftContent     String    @default("")
+  /// Consentimento explícito para eventual gravação (futuro)
+  recordingConsent Boolean   @default(false)
+  confirmedAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  clinic       Clinic        @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  patient      Patient       @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  professional Professional  @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  appointment  Appointment?  @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+
+  @@index([clinicId, status, updatedAt])
+  @@index([patientId, status, confirmedAt])
+  @@index([professionalId, updatedAt])
+}
