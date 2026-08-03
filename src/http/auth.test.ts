@@ -22,6 +22,13 @@ describe("auth public paths", () => {
     expect(isPublicPath("/v1/clinical-records")).toBe(false);
     expect(isPublicPath("/v1/auth/me")).toBe(false);
   });
+
+  it("libera SPA e assets estáticos", () => {
+    expect(isPublicPath("/")).toBe(true);
+    expect(isPublicPath("/login")).toBe(true);
+    expect(isPublicPath("/assine")).toBe(true);
+    expect(isPublicPath("/assets/index.js")).toBe(true);
+  });
 });
 
 describe("normalizePhone", () => {

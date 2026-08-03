@@ -53,11 +53,16 @@ function safeEqualString(a: string, b: string): boolean {
 
 export function isPublicPath(url: string): boolean {
   const path = url.split("?")[0] ?? url;
-  return (
+  if (
     path === "/health" ||
     path === "/v1/auth/login" ||
     path.startsWith("/v1/public/")
-  );
+  ) {
+    return true;
+  }
+  // Painel SPA + assets estáticos (mesma origem em produção)
+  if (!path.startsWith("/v1")) return true;
+  return false;
 }
 
 export async function authenticateRequest(
@@ -130,6 +135,11 @@ export async function registerAuthRoutes(app: FastifyInstance) {
       return reply.code(401).send({ error: "E-mail ou senha inválidos" });
     }
 
+    const { getClinicBillingInfo } = await import(
+      "../services/subscriptions.js"
+    );
+    const billing = await getClinicBillingInfo(user.clinicId);
+
     const token = app.jwt.sign(
       {
         sub: user.id,
@@ -151,6 +161,7 @@ export async function registerAuthRoutes(app: FastifyInstance) {
         role: user.role,
         professionalId: user.professionalId,
         clinic: { id: user.clinic.id, name: user.clinic.name },
+        billing,
       },
     };
   });
@@ -164,6 +175,10 @@ export async function registerAuthRoutes(app: FastifyInstance) {
       include: { clinic: true },
     });
     if (!user) return reply.code(401).send({ error: "unauthorized" });
+    const { getClinicBillingInfo } = await import(
+      "../services/subscriptions.js"
+    );
+    const billing = await getClinicBillingInfo(user.clinicId);
     return {
       id: user.id,
       email: user.email,
@@ -171,7 +186,38 @@ export async function registerAuthRoutes(app: FastifyInstance) {
       role: user.role,
       professionalId: user.professionalId,
       clinic: { id: user.clinic.id, name: user.clinic.name },
+      billing,
     };
+  });
+
+  app.get("/v1/billing", async (request, reply) => {
+    if (!request.auth || request.auth.kind !== "staff") {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+    const { getClinicBillingInfo } = await import(
+      "../services/subscriptions.js"
+    );
+    return getClinicBillingInfo(request.auth.clinicId);
+  });
+
+  app.post("/v1/billing/cancel", async (request, reply) => {
+    if (!request.auth || request.auth.kind !== "staff") {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+    if (request.auth.role !== "admin") {
+      return reply.code(403).send({ error: "Somente administradores podem cancelar a assinatura." });
+    }
+    try {
+      const { cancelClinicSubscription } = await import(
+        "../services/subscriptions.js"
+      );
+      const subscription = await cancelClinicSubscription(request.auth.clinicId);
+      return { ok: true, subscription };
+    } catch (err) {
+      const status = (err as { statusCode?: number }).statusCode ?? 500;
+      const message = err instanceof Error ? err.message : "erro";
+      return reply.code(status).send({ error: message });
+    }
   });
 }
 

@@ -106,6 +106,7 @@ export function Layout() {
     stored?.name ?? "Dra. Ana Carolina",
   );
   const [specialty, setSpecialty] = useState("Psicóloga");
+  const [billingBanner, setBillingBanner] = useState<string | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -123,6 +124,20 @@ export function Layout() {
               ? "Psicóloga"
               : dash.professional.specialty || "Psicóloga",
           );
+        }
+        const b = me.billing;
+        if (b?.billingBlocked) {
+          setBillingBanner(
+            b.billingStatus === "cancelled"
+              ? "Assinatura cancelada. Regularize o pagamento para voltar a editar dados."
+              : "Pagamento da assinatura em atraso. Após o período de cortesia, alterações ficam bloqueadas.",
+          );
+        } else if (b?.billingStatus === "past_due") {
+          setBillingBanner(
+            "Não conseguimos renovar sua assinatura. Atualize o pagamento no Mercado Pago para evitar bloqueio.",
+          );
+        } else {
+          setBillingBanner(null);
         }
       } catch {
         /* defaults */
@@ -235,6 +250,11 @@ export function Layout() {
           </header>
 
           <main className="page-area">
+            {billingBanner ? (
+              <p className="banner err" role="status">
+                {billingBanner}
+              </p>
+            ) : null}
             <Outlet />
           </main>
         </div>

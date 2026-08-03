@@ -25,7 +25,6 @@ export function SubscribePage() {
   const [searchParams] = useSearchParams();
   const [plan, setPlan] = useState<SubscriptionPlan | null>(null);
   const [email, setEmail] = useState("");
-  const [method, setMethod] = useState<"pix" | "card">("pix");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [checkout, setCheckout] = useState<SoftwareSubscription | null>(null);
@@ -73,11 +72,20 @@ export function SubscribePage() {
     try {
       const created = await api.signupCheckout({
         email: email.trim(),
-        method,
+        method: "card",
       });
       setCheckout(created);
-      if (method === "card" && created.checkoutUrl && !created.sandbox) {
+      if (created.complimentary && created.setup) {
+        setPaidInfo({
+          emailSent: created.setup.emailSent,
+          setupUrl: created.setup.setupUrl,
+          reason: created.setup.emailSkippedReason,
+        });
+        return;
+      }
+      if (created.checkoutUrl && !created.sandbox) {
         window.location.assign(created.checkoutUrl);
+        return;
       }
     } catch (err) {
       setError(
@@ -115,9 +123,7 @@ export function SubscribePage() {
   }
 
   const showCheckout =
-    checkout &&
-    checkout.status === "pending_payment" &&
-    !paidInfo;
+    checkout && checkout.status === "pending_payment" && !paidInfo;
 
   return (
     <div className="login-page">
@@ -128,7 +134,7 @@ export function SubscribePage() {
           </div>
           <div>
             <h1>Bem Estar</h1>
-            <p>Assine o painel do consultório</p>
+            <p>Assinatura mensal do painel</p>
           </div>
         </div>
 
@@ -164,31 +170,11 @@ export function SubscribePage() {
             </p>
             <p className="signup-amount">
               {formatMoney(checkout.amountCents)}
+              <small> / mês</small>
             </p>
-            {checkout.method === "pix" || method === "pix" ? (
-              <>
-                {checkout.pixQrCode ? (
-                  <img
-                    className="signup-qr"
-                    src={checkout.pixQrCode}
-                    alt="QR Code PIX"
-                  />
-                ) : null}
-                {checkout.pixCopyPaste ? (
-                  <label className="field-block">
-                    <span>PIX copia e cola</span>
-                    <textarea
-                      readOnly
-                      rows={3}
-                      value={checkout.pixCopyPaste}
-                      onFocus={(e) => e.target.select()}
-                    />
-                  </label>
-                ) : null}
-              </>
-            ) : checkout.checkoutUrl ? (
+            {checkout.checkoutUrl ? (
               <a className="btn teal block" href={checkout.checkoutUrl}>
-                Ir para o pagamento
+                Continuar no Mercado Pago
               </a>
             ) : null}
 
@@ -203,8 +189,8 @@ export function SubscribePage() {
               </button>
             ) : (
               <p className="muted login-hint">
-                Aguardando confirmação do pagamento. Após a confirmação, o link
-                de cadastro chega no e-mail.
+                Após autorizar a assinatura no Mercado Pago, o link de cadastro
+                chega no e-mail. A cobrança renova automaticamente todo mês.
               </p>
             )}
 
@@ -226,6 +212,9 @@ export function SubscribePage() {
                 <div>
                   <strong>{plan.name}</strong>
                   <p>{plan.description}</p>
+                  <p className="muted login-hint">
+                    Renovação automática mensal via Mercado Pago (cartão).
+                  </p>
                 </div>
                 <div className="signup-plan-price">
                   <span>{formatMoney(plan.amountCents)}</span>
@@ -248,34 +237,12 @@ export function SubscribePage() {
               />
             </label>
 
-            <fieldset className="signup-method">
-              <legend>Forma de pagamento</legend>
-              <label>
-                <input
-                  type="radio"
-                  name="method"
-                  checked={method === "pix"}
-                  onChange={() => setMethod("pix")}
-                />
-                PIX
-              </label>
-              <label>
-                <input
-                  type="radio"
-                  name="method"
-                  checked={method === "card"}
-                  onChange={() => setMethod("card")}
-                />
-                Cartão
-              </label>
-            </fieldset>
-
             <button
               type="submit"
               className="btn teal block"
               disabled={loading || !plan}
             >
-              {loading ? "Gerando pagamento…" : "Continuar para pagamento"}
+              {loading ? "Abrindo Mercado Pago…" : "Assinar com Mercado Pago"}
             </button>
           </form>
         )}

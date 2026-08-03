@@ -102,7 +102,18 @@ export const api = {
     method?: "pix" | "card";
     provider?: OnlineProvider;
   }) =>
-    publicRequest<SoftwareSubscription>("/v1/public/signup/checkout", {
+    publicRequest<
+      SoftwareSubscription & {
+        sandbox?: boolean;
+        simulateToken?: string | null;
+        complimentary?: boolean;
+        setup?: {
+          setupUrl: string | null;
+          emailSent: boolean;
+          emailSkippedReason?: string;
+        };
+      }
+    >("/v1/public/signup/checkout", {
       method: "POST",
       body: JSON.stringify(body),
     }),
@@ -147,6 +158,20 @@ export const api = {
       body: JSON.stringify(body),
     }),
   me: () => request<AuthUser>("/v1/auth/me"),
+  billing: () =>
+    request<{
+      billingStatus: "none" | "active" | "past_due" | "cancelled";
+      billingBlocked: boolean;
+      currentPeriodEnd: string | null;
+      cancelAtPeriodEnd: boolean;
+      complimentary: boolean;
+      hasSubscription: boolean;
+    }>("/v1/billing"),
+  cancelBilling: () =>
+    request<{ ok: true; subscription: SoftwareSubscription }>(
+      "/v1/billing/cancel",
+      { method: "POST" },
+    ),
   clinic: () => request<Clinic>("/v1/clinic"),
   dashboard: () => request<DashboardData>("/v1/dashboard"),
   patients: () => request<PatientsResponse>("/v1/patients"),

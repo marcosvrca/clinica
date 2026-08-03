@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
-import type { Reminder } from "../api/types";
+import type { ClinicBillingInfo, Reminder } from "../api/types";
+import { getStoredUser } from "../lib/auth";
 import { formatShortDay, formatTime } from "../lib/dates";
 
 export { FinancePage } from "./FinancePage";
@@ -8,21 +9,28 @@ export { SessionsPage } from "./SessionsPage";
 export { ReportsPage } from "./ReportsPage";
 
 export function SettingsPage() {
+  const stored = getStoredUser();
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [channels, setChannels] = useState<{
     whatsapp: boolean;
     email: boolean;
     emailConfigured: boolean;
   } | null>(null);
+  const [billing, setBilling] = useState<ClinicBillingInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState(false);
 
   useEffect(() => {
     void (async () => {
       try {
-        const rem = await api.reminders();
+        const [rem, bill] = await Promise.all([
+          api.reminders(),
+          api.billing(),
+        ]);
         setReminders(rem.items);
         setChannels(rem.channels ?? null);
+        setBilling(bill);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Erro ao carregar");
       }
@@ -45,6 +53,29 @@ export function SettingsPage() {
     }
   }
 
+  async function cancelSubscription() {
+    if (
+      !window.confirm(
+        "Cancelar a assinatura mensal no Mercado Pago? O acesso poderá ser bloqueado.",
+      )
+    ) {
+      return;
+    }
+    setCancelling(true);
+    setError(null);
+    setInfo(null);
+    try {
+      await api.cancelBilling();
+      const bill = await api.billing();
+      setBilling(bill);
+      setInfo("Assinatura cancelada.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha ao cancelar");
+    } finally {
+      setCancelling(false);
+    }
+  }
+
   return (
     <div className="settings-page" style={{ display: "grid", gap: "1.25rem" }}>
       {error ? <p className="banner err">{error}</p> : null}
@@ -59,6 +90,29 @@ export function SettingsPage() {
           sensível.
         </p>
       </div>
+
+      {billing?.hasSubscription && !billing.complimentary ? (
+        <div className="card pad">
+          <h3 className="card-title sm">Assinatura do painel</h3>
+          <p className="muted" style={{ fontSize: "0.875rem", marginTop: 0 }}>
+            Status: <strong>{billing.billingStatus}</strong>
+            {billing.currentPeriodEnd
+              ? ` · vigência até ${formatShortDay(billing.currentPeriodEnd)}`
+              : ""}
+          </p>
+          {stored?.role === "admin" &&
+          billing.billingStatus !== "cancelled" ? (
+            <button
+              type="button"
+              className="btn ghost"
+              disabled={cancelling}
+              onClick={() => void cancelSubscription()}
+            >
+              {cancelling ? "Cancelando…" : "Cancelar assinatura"}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="card pad">
         <h3 className="card-title sm">Cobranças e lembretes</h3>

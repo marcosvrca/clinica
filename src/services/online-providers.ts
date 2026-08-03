@@ -44,6 +44,15 @@ export function sandboxAllowed() {
   return env().NODE_ENV !== "production";
 }
 
+/** URL de notificação com ?secret= para provedores que não enviam header customizado (ex.: Mercado Pago). */
+export function providerWebhookUrl(provider: OnlineProvider | string) {
+  const base = env().PUBLIC_BASE_URL.replace(/\/$/, "");
+  const url = new URL(`${base}/v1/public/webhooks/${provider}`);
+  const secret = env().PAYMENTS_WEBHOOK_SECRET.trim();
+  if (secret) url.searchParams.set("secret", secret);
+  return url.toString();
+}
+
 export function isSandboxExternalId(externalId: string | null | undefined) {
   return Boolean(externalId?.startsWith("sandbox_"));
 }

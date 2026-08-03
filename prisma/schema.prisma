@@ -73,6 +73,14 @@ enum SoftwareSubscriptionStatus {
   cancelled
 }
 
+/// Estado da cobrança recorrente (Mercado Pago Assinaturas).
+enum SubscriptionBillingStatus {
+  none
+  active
+  past_due
+  cancelled
+}
+
 enum ReminderKind {
   confirmation
   day_before
@@ -175,6 +183,13 @@ model SoftwareSubscription {
   /// Em sandbox sem e-mail: token em claro só na resposta da API (nunca persistir em prod).
   completedAt          DateTime?
   clinicId             String?                    @unique
+  /// Mercado Pago Assinaturas
+  mpPreapprovalPlanId  String?
+  mpPreapprovalId      String?
+  billingStatus        SubscriptionBillingStatus  @default(none)
+  currentPeriodEnd     DateTime?
+  lastPaymentAt        DateTime?
+  cancelAtPeriodEnd    Boolean                    @default(false)
   createdAt            DateTime                   @default(now())
   updatedAt            DateTime                   @updatedAt
 
@@ -183,6 +198,8 @@ model SoftwareSubscription {
   @@index([email, status])
   @@index([provider, externalId])
   @@index([status, createdAt])
+  @@index([mpPreapprovalId])
+  @@index([billingStatus])
 }
 
 model WeeklyHour {

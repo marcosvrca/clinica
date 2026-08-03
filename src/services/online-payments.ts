@@ -2,6 +2,7 @@ import {
   AppointmentStatus,
   OnlineProvider,
   PaymentStatus,
+  SoftwareSubscriptionStatus,
 } from "@prisma/client";
 import { prisma } from "../infra/prisma.js";
 import { env } from "../config/env.js";
@@ -12,14 +13,22 @@ import {
   createProviderCheckout,
   isSandboxExternalId,
   listOnlineProviders,
+  providerWebhookUrl,
   sandboxAllowed,
   sandboxPayToken,
   verifyProviderPaidEvent,
   type CheckoutMethod,
 } from "./online-providers.js";
 import {
+  fetchMercadoPagoAuthorizedPayment,
+  fetchMercadoPagoPreapproval,
+} from "./mp-subscriptions.js";
+import {
   finalizeSubscriptionPayment,
   findSubscriptionByCheckoutRef,
+  markSubscriptionBillingCancelled,
+  markSubscriptionPastDue,
+  recordSubscriptionRenewal,
 } from "./subscriptions.js";
 
 function tokensMatch(a: string, b: string) {
@@ -233,7 +242,7 @@ export async function createOnlineCheckout(input: {
       method,
       successUrl: `${base}/v1/public/payments/${payment.id}/success`,
       cancelUrl: `${base}/v1/public/payments/${payment.id}/checkout?provider=${provider}`,
-      notificationUrl: `${base}/v1/public/webhooks/${provider}`,
+      notificationUrl: providerWebhookUrl(provider),
     });
   } catch (err) {
     throw new PaymentError(
@@ -281,6 +290,7 @@ function headerValue(
 
 function assertSharedWebhookSecret(
   headers: Record<string, string | string[] | undefined> | undefined,
+  query?: Record<string, string | undefined>,
 ) {
   const expected = env().PAYMENTS_WEBHOOK_SECRET.trim();
   if (!expected) {
@@ -294,7 +304,8 @@ function assertSharedWebhookSecret(
   }
   const got =
     headerValue(headers, "x-clinic-webhook-secret") ??
-    headerValue(headers, "x-webhook-secret");
+    headerValue(headers, "x-webhook-secret") ??
+    query?.secret?.trim();
   if (!got || !tokensMatch(got, expected)) {
     throw new PaymentError("Webhook secret inválido", 401);
   }
@@ -307,7 +318,15 @@ export async function handleProviderWebhook(input: {
   headers?: Record<string, string | string[] | undefined>;
   query?: Record<string, string | undefined>;
 }) {
-  assertSharedWebhookSecret(input.headers);
+  assertSharedWebhookSecret(input.headers, input.query);
+
+  if (input.provider === OnlineProvider.mercado_pago) {
+    const subResult = await handleMercadoPagoSubscriptionWebhook(
+      input.body,
+      input.query,
+    );
+    if (subResult) return subResult;
+  }
 
   const verified = await verifyProviderPaidEvent({
     provider: input.provider,
@@ -363,6 +382,181 @@ export async function handleProviderWebhook(input: {
     subscriptionId: subResult.subscription.id,
     message: subResult.message ?? "Assinatura confirmada",
   };
+}
+
+function webhookTopic(
+  body: unknown,
+  query?: Record<string, string | undefined>,
+) {
+  const data = (body ?? {}) as Record<string, unknown>;
+  return String(
+    query?.type ||
+      query?.topic ||
+      data.type ||
+      data.topic ||
+      data.action ||
+      "",
+  ).toLowerCase();
+}
+
+function webhookResourceId(
+  body: unknown,
+  query?: Record<string, string | undefined>,
+) {
+  const data = (body ?? {}) as Record<string, unknown>;
+  const nested = data.data as { id?: string | number } | undefined;
+  return (
+    query?.id ||
+    query?.["data.id"] ||
+    (nested?.id != null ? String(nested.id) : null) ||
+    (typeof data.id === "string" || typeof data.id === "number"
+      ? String(data.id)
+      : null)
+  );
+}
+
+async function handleMercadoPagoSubscriptionWebhook(
+  body: unknown,
+  query?: Record<string, string | undefined>,
+) {
+  const topic = webhookTopic(body, query);
+  const resourceId = webhookResourceId(body, query);
+  if (!resourceId) return null;
+
+  const isPreapproval =
+    topic.includes("subscription_preapproval") ||
+    topic === "preapproval" ||
+    topic.includes("subscription_preapproval_plan");
+  const isAuthorizedPayment =
+    topic.includes("subscription_authorized_payment") ||
+    topic.includes("authorized_payment") ||
+    topic.includes("subscription_invoice");
+
+  if (!isPreapproval && !isAuthorizedPayment) return null;
+
+  if (isPreapproval) {
+    const pre = await fetchMercadoPagoPreapproval(resourceId);
+    if (!pre) return { ok: true, ignored: true, reason: "preapproval not found" };
+
+    const subscription = await findSubscriptionByCheckoutRef({
+      id: pre.externalReference,
+      mpPreapprovalId: pre.id,
+      externalId: pre.id,
+    });
+    if (!subscription) {
+      return { ok: true, ignored: true, reason: "subscription not found" };
+    }
+
+    const status = pre.status.toLowerCase();
+    if (status === "cancelled" || status === "canceled") {
+      await markSubscriptionBillingCancelled(subscription.id);
+      return {
+        ok: true,
+        subscriptionId: subscription.id,
+        billingStatus: "cancelled",
+      };
+    }
+    if (status === "paused") {
+      await markSubscriptionPastDue(subscription.id);
+      return {
+        ok: true,
+        subscriptionId: subscription.id,
+        billingStatus: "past_due",
+      };
+    }
+    if (status === "authorized" || status === "active") {
+      if (
+        subscription.status === SoftwareSubscriptionStatus.pending_payment ||
+        subscription.status === SoftwareSubscriptionStatus.paid
+      ) {
+        const result = await finalizeSubscriptionPayment({
+          subscriptionId: subscription.id,
+          method: "card",
+          provider: OnlineProvider.mercado_pago,
+          externalId: pre.id,
+          mpPreapprovalId: pre.id,
+        });
+        return {
+          ok: true,
+          subscriptionId: result.subscription.id,
+          message: result.message ?? "Assinatura autorizada",
+        };
+      }
+      await recordSubscriptionRenewal({
+        subscriptionId: subscription.id,
+        externalId: pre.id,
+        mpPreapprovalId: pre.id,
+      });
+      return { ok: true, subscriptionId: subscription.id, renewed: true };
+    }
+    return { ok: true, ignored: true, status };
+  }
+
+  // authorized payment (cobrança recorrente)
+  const authPay = await fetchMercadoPagoAuthorizedPayment(resourceId);
+  if (!authPay) {
+    return { ok: true, ignored: true, reason: "authorized_payment not found" };
+  }
+
+  const subscription = await findSubscriptionByCheckoutRef({
+    id: authPay.externalReference,
+    mpPreapprovalId: authPay.preapprovalId,
+    externalId: authPay.preapprovalId,
+  });
+  if (!subscription) {
+    return { ok: true, ignored: true, reason: "subscription not found" };
+  }
+
+  const st = authPay.status.toLowerCase();
+  const paid =
+    st === "approved" ||
+    st === "accredited" ||
+    st === "processed" ||
+    st === "authorized";
+
+  if (paid) {
+    if (subscription.status === SoftwareSubscriptionStatus.pending_payment) {
+      const result = await finalizeSubscriptionPayment({
+        subscriptionId: subscription.id,
+        method: "card",
+        provider: OnlineProvider.mercado_pago,
+        externalId: authPay.paymentId ?? authPay.id,
+        mpPreapprovalId: authPay.preapprovalId,
+      });
+      return {
+        ok: true,
+        subscriptionId: result.subscription.id,
+        message: result.message ?? "Primeira cobrança confirmada",
+      };
+    }
+    await recordSubscriptionRenewal({
+      subscriptionId: subscription.id,
+      externalId: authPay.paymentId ?? authPay.id,
+      mpPreapprovalId: authPay.preapprovalId,
+    });
+    return {
+      ok: true,
+      subscriptionId: subscription.id,
+      renewed: true,
+    };
+  }
+
+  if (
+    st === "rejected" ||
+    st === "cancelled" ||
+    st === "canceled" ||
+    st === "refunded" ||
+    st === "charged_back"
+  ) {
+    await markSubscriptionPastDue(subscription.id);
+    return {
+      ok: true,
+      subscriptionId: subscription.id,
+      billingStatus: "past_due",
+    };
+  }
+
+  return { ok: true, ignored: true, status: st };
 }
 
 export async function getPublicCheckout(paymentId: string) {

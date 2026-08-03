@@ -1,4 +1,8 @@
+import { config as loadDotenv } from "dotenv";
 import { z } from "zod";
+
+// Garante RESEND_* / DATABASE_URL etc. mesmo sem --env-file no processo.
+loadDotenv();
 
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
@@ -37,6 +41,8 @@ const envSchema = z.object({
     .enum(["mercado_pago", "stripe", "asaas", "pagarme"])
     .default("mercado_pago"),
   MERCADOPAGO_ACCESS_TOKEN: z.string().optional().default(""),
+  /** Id do plano de Assinaturas MP (preapproval_plan). Vazio = cria na primeira cobrança. */
+  MERCADOPAGO_PREAPPROVAL_PLAN_ID: z.string().optional().default(""),
   STRIPE_SECRET_KEY: z.string().optional().default(""),
   STRIPE_WEBHOOK_SECRET: z.string().optional().default(""),
   ASAAS_API_KEY: z.string().optional().default(""),
@@ -44,8 +50,13 @@ const envSchema = z.object({
   PAGARME_SECRET_KEY: z.string().optional().default(""),
   /** auto = sandbox só fora de production; true/false força. */
   PAYMENTS_ALLOW_SANDBOX: z.enum(["true", "false", "auto"]).default("auto"),
-  /** Segredo extra para webhooks (header x-clinic-webhook-secret). Obrigatório em production. */
+  /** Segredo extra para webhooks (header ou ?secret=). Obrigatório em production. */
   PAYMENTS_WEBHOOK_SECRET: z.string().optional().default(""),
+  /**
+   * E-mails que pulam cobrança no onboarding SaaS (separados por vírgula).
+   * Ex.: dono@mvflow.com.br
+   */
+  COMPLIMENTARY_SIGNUP_EMAILS: z.string().optional().default(""),
   /** Assinatura SaaS do painel (onboarding). */
   SUBSCRIPTION_PLAN_CODE: z.string().default("pro_monthly"),
   SUBSCRIPTION_PLAN_NAME: z.string().default("Plano Profissional"),

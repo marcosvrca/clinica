@@ -8,6 +8,14 @@ export type AuthUser = {
   role: "admin" | "professional";
   professionalId: string | null;
   clinic: { id: string; name: string };
+  billing?: {
+    billingStatus: "none" | "active" | "past_due" | "cancelled";
+    billingBlocked: boolean;
+    currentPeriodEnd: string | null;
+    cancelAtPeriodEnd: boolean;
+    complimentary: boolean;
+    hasSubscription: boolean;
+  };
 };
 
 export function getToken(): string | null {

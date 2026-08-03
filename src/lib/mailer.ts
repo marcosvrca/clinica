@@ -13,13 +13,24 @@ export type ReminderEmailInput = {
   amountLabel?: string;
 };
 
+/** Resend com API key — usado por cadastro e lembretes. */
+export function isResendConfigured() {
+  return Boolean(env().RESEND_API_KEY?.trim());
+}
+
+/** Lembretes de sessão: Resend + flag REMINDER_EMAIL_ENABLED. */
 export function isEmailConfigured() {
-  return Boolean(env().RESEND_API_KEY?.trim()) && env().REMINDER_EMAIL_ENABLED;
+  return isResendConfigured() && env().REMINDER_EMAIL_ENABLED;
 }
 
 export async function sendReminderEmail(input: ReminderEmailInput) {
   if (!isEmailConfigured()) {
-    return { skipped: true as const, reason: "e-mail desabilitado ou sem RESEND_API_KEY" };
+    return {
+      skipped: true as const,
+      reason: isResendConfigured()
+        ? "REMINDER_EMAIL_ENABLED=false"
+        : "RESEND_API_KEY não configurada",
+    };
   }
 
   const resend = new Resend(env().RESEND_API_KEY);
@@ -80,8 +91,9 @@ export type SignupSetupEmailInput = {
 };
 
 export async function sendSignupSetupEmail(input: SignupSetupEmailInput) {
-  if (!isEmailConfigured()) {
-    return { skipped: true as const, reason: "e-mail desabilitado ou sem RESEND_API_KEY" };
+  // Cadastro NÃO depende de REMINDER_EMAIL_ENABLED — só da API key do Resend.
+  if (!isResendConfigured()) {
+    return { skipped: true as const, reason: "RESEND_API_KEY não configurada" };
   }
 
   const resend = new Resend(env().RESEND_API_KEY);

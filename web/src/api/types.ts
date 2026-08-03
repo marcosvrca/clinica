@@ -5,6 +5,16 @@ export type AuthUser = {
   role: "admin" | "professional";
   professionalId: string | null;
   clinic: { id: string; name: string };
+  billing?: ClinicBillingInfo;
+};
+
+export type ClinicBillingInfo = {
+  billingStatus: "none" | "active" | "past_due" | "cancelled";
+  billingBlocked: boolean;
+  currentPeriodEnd: string | null;
+  cancelAtPeriodEnd: boolean;
+  complimentary: boolean;
+  hasSubscription: boolean;
 };
 
 export type SubscriptionPlan = {
@@ -37,6 +47,11 @@ export type SoftwareSubscription = {
   sandbox?: boolean;
   simulateToken?: string | null;
   emailConfigured?: boolean;
+  mpPreapprovalId?: string | null;
+  billingStatus?: "none" | "active" | "past_due" | "cancelled";
+  currentPeriodEnd?: string | null;
+  lastPaymentAt?: string | null;
+  cancelAtPeriodEnd?: boolean;
 };
 
 export type Clinic = {

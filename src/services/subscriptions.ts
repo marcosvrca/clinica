@@ -7,18 +7,26 @@ import {
   OnlineProvider,
   SoftwareSubscriptionStatus,
   StaffRole,
+  SubscriptionBillingStatus,
 } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { env } from "../config/env.js";
 import { prisma } from "../infra/prisma.js";
-import { sendSignupSetupEmail, isEmailConfigured } from "../lib/mailer.js";
 import {
-  createProviderCheckout,
+  sendSignupSetupEmail,
+  isResendConfigured,
+} from "../lib/mailer.js";
+import {
   isSandboxExternalId,
   sandboxAllowed,
   sandboxPayToken,
   type CheckoutMethod,
 } from "./online-providers.js";
+import {
+  cancelMercadoPagoPreapproval,
+  createMercadoPagoSubscriptionCheckout,
+  periodEndFromNow,
+} from "./mp-subscriptions.js";
 
 export class SubscriptionError extends Error {
   constructor(
@@ -75,6 +83,21 @@ export function getSubscriptionPlan() {
   };
 }
 
+export function complimentarySignupEmails(): Set<string> {
+  return new Set(
+    env()
+      .COMPLIMENTARY_SIGNUP_EMAILS.split(",")
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean),
+  );
+}
+
+export function isComplimentarySignupEmail(email: string) {
+  return complimentarySignupEmails().has(email.toLowerCase().trim());
+}
+
+const PAST_DUE_GRACE_MS = 3 * 24 * 60 * 60 * 1000;
+
 function mapSubscription(row: {
   id: string;
   email: string;
@@ -93,6 +116,12 @@ function mapSubscription(row: {
   completedAt: Date | null;
   clinicId: string | null;
   createdAt: Date;
+  mpPreapprovalPlanId?: string | null;
+  mpPreapprovalId?: string | null;
+  billingStatus?: SubscriptionBillingStatus;
+  currentPeriodEnd?: Date | null;
+  lastPaymentAt?: Date | null;
+  cancelAtPeriodEnd?: boolean;
 }) {
   return {
     id: row.id,
@@ -112,6 +141,11 @@ function mapSubscription(row: {
     completedAt: row.completedAt?.toISOString() ?? null,
     clinicId: row.clinicId,
     createdAt: row.createdAt.toISOString(),
+    mpPreapprovalId: row.mpPreapprovalId ?? null,
+    billingStatus: row.billingStatus ?? SubscriptionBillingStatus.none,
+    currentPeriodEnd: row.currentPeriodEnd?.toISOString() ?? null,
+    lastPaymentAt: row.lastPaymentAt?.toISOString() ?? null,
+    cancelAtPeriodEnd: row.cancelAtPeriodEnd ?? false,
   };
 }
 
@@ -152,9 +186,54 @@ export async function startSubscriptionCheckout(input: {
   }
 
   const plan = getSubscriptionPlan();
-  const method = input.method ?? "pix";
-  const provider =
-    input.provider ?? (env().PAYMENTS_DEFAULT_PROVIDER as OnlineProvider);
+
+  if (isComplimentarySignupEmail(email)) {
+    const subscription =
+      open?.status === SoftwareSubscriptionStatus.pending_payment
+        ? await prisma.softwareSubscription.update({
+            where: { id: open.id },
+            data: {
+              status: SoftwareSubscriptionStatus.paid,
+              paidAt: new Date(),
+              method: "complimentary",
+              provider: null,
+              externalId: `complimentary_${randomBytes(8).toString("hex")}`,
+              amountCents: 0,
+              checkoutUrl: null,
+              pixQrCode: null,
+              pixCopyPaste: null,
+              billingStatus: SubscriptionBillingStatus.none,
+              lastPaymentAt: new Date(),
+            },
+          })
+        : await prisma.softwareSubscription.create({
+            data: {
+              email,
+              planCode: plan.code,
+              planName: plan.name,
+              amountCents: 0,
+              status: SoftwareSubscriptionStatus.paid,
+              method: "complimentary",
+              paidAt: new Date(),
+              externalId: `complimentary_${randomBytes(8).toString("hex")}`,
+              billingStatus: SubscriptionBillingStatus.none,
+              lastPaymentAt: new Date(),
+            },
+          });
+
+    const setup = await issueSetupLink(subscription.id);
+    const fresh = await prisma.softwareSubscription.findFirstOrThrow({
+      where: { id: subscription.id },
+    });
+
+    return {
+      ...mapSubscription(fresh),
+      sandbox: false,
+      simulateToken: null,
+      complimentary: true as const,
+      setup,
+    };
+  }
 
   const subscription =
     open?.status === SoftwareSubscriptionStatus.pending_payment
@@ -166,28 +245,24 @@ export async function startSubscriptionCheckout(input: {
             planName: plan.name,
             amountCents: plan.amountCents,
             status: SoftwareSubscriptionStatus.pending_payment,
-            method,
+            method: "card",
+            provider: OnlineProvider.mercado_pago,
+            billingStatus: SubscriptionBillingStatus.none,
           },
         });
 
-  const base = env().PUBLIC_BASE_URL.replace(/\/$/, "");
   let checkout;
   try {
-    checkout = await createProviderCheckout(provider, {
-      paymentId: subscription.id,
+    checkout = await createMercadoPagoSubscriptionCheckout({
+      subscriptionId: subscription.id,
+      email,
       amountCents: subscription.amountCents,
-      description: `${plan.name} — Bem Estar`,
-      patientName: null,
-      patientEmail: email,
-      patientPhone: "00000000000",
-      method,
-      successUrl: `${env().WEB_BASE_URL.replace(/\/$/, "")}/assine?paid=${subscription.id}`,
-      cancelUrl: `${env().WEB_BASE_URL.replace(/\/$/, "")}/assine?cancel=1`,
-      notificationUrl: `${base}/v1/public/webhooks/${provider}`,
+      planName: plan.name,
+      backUrl: `${env().WEB_BASE_URL.replace(/\/$/, "")}/assine?paid=${subscription.id}`,
     });
   } catch (err) {
     throw new SubscriptionError(
-      err instanceof Error ? err.message : "Falha ao criar checkout",
+      err instanceof Error ? err.message : "Falha ao criar assinatura",
       422,
     );
   }
@@ -198,9 +273,11 @@ export async function startSubscriptionCheckout(input: {
       provider: checkout.provider,
       externalId: checkout.externalId,
       checkoutUrl: checkout.checkoutUrl,
-      pixQrCode: checkout.pixQrCode,
-      pixCopyPaste: checkout.pixCopyPaste,
-      method: method === "pix" ? "pix" : "card",
+      pixQrCode: null,
+      pixCopyPaste: null,
+      method: "card",
+      mpPreapprovalPlanId: checkout.mpPreapprovalPlanId,
+      mpPreapprovalId: checkout.mpPreapprovalId,
     },
   });
 
@@ -211,6 +288,7 @@ export async function startSubscriptionCheckout(input: {
       checkout.sandbox && sandboxAllowed()
         ? sandboxPayToken(subscription.id)
         : null,
+    complimentary: false as const,
   };
 }
 
@@ -245,11 +323,22 @@ async function issueSetupLink(subscriptionId: string) {
         where: { id: subscriptionId },
         data: { setupEmailSentAt: new Date() },
       });
+      console.info(
+        `[signup-email] enviado subscription=${subscriptionId} to=${updated.email} resendId=${emailResult.id ?? "?"}`,
+      );
+    } else {
+      console.warn(
+        `[signup-email] pulado subscription=${subscriptionId} to=${updated.email} reason=${emailResult.reason ?? "desconhecido"} resendConfigured=${isResendConfigured()}`,
+      );
     }
   } catch (err) {
+    const reason = err instanceof Error ? err.message : "falha no envio";
+    console.error(
+      `[signup-email] erro subscription=${subscriptionId} to=${updated.email}: ${reason}`,
+    );
     emailResult = {
       skipped: true,
-      reason: err instanceof Error ? err.message : "falha no envio",
+      reason,
     };
   }
 
@@ -268,6 +357,7 @@ export async function finalizeSubscriptionPayment(input: {
   provider?: OnlineProvider | null;
   externalId?: string | null;
   notes?: string;
+  mpPreapprovalId?: string | null;
 }) {
   const current = await prisma.softwareSubscription.findFirst({
     where: { id: input.subscriptionId },
@@ -279,6 +369,18 @@ export async function finalizeSubscriptionPayment(input: {
     throw new SubscriptionError("Assinatura cancelada", 422);
   }
   if (current.status === SoftwareSubscriptionStatus.completed) {
+    await prisma.softwareSubscription.update({
+      where: { id: current.id },
+      data: {
+        billingStatus: SubscriptionBillingStatus.active,
+        lastPaymentAt: new Date(),
+        currentPeriodEnd: periodEndFromNow(1),
+        ...(input.mpPreapprovalId
+          ? { mpPreapprovalId: input.mpPreapprovalId }
+          : {}),
+        ...(input.externalId ? { externalId: input.externalId } : {}),
+      },
+    });
     return {
       subscription: mapSubscription(current),
       alreadyPaid: true,
@@ -287,9 +389,21 @@ export async function finalizeSubscriptionPayment(input: {
   }
 
   if (current.status === SoftwareSubscriptionStatus.paid) {
-    const setup = current.setupTokenHash
-      ? null
-      : await issueSetupLink(current.id);
+    await prisma.softwareSubscription.update({
+      where: { id: current.id },
+      data: {
+        billingStatus: SubscriptionBillingStatus.active,
+        lastPaymentAt: new Date(),
+        currentPeriodEnd: current.currentPeriodEnd ?? periodEndFromNow(1),
+        ...(input.mpPreapprovalId
+          ? { mpPreapprovalId: input.mpPreapprovalId }
+          : {}),
+      },
+    });
+    const setup =
+      current.setupTokenHash && current.setupEmailSentAt
+        ? null
+        : await issueSetupLink(current.id);
     return {
       subscription: mapSubscription(current),
       alreadyPaid: true,
@@ -305,6 +419,10 @@ export async function finalizeSubscriptionPayment(input: {
       method: input.method,
       provider: input.provider ?? current.provider,
       externalId: input.externalId ?? current.externalId,
+      mpPreapprovalId: input.mpPreapprovalId ?? current.mpPreapprovalId,
+      billingStatus: SubscriptionBillingStatus.active,
+      lastPaymentAt: new Date(),
+      currentPeriodEnd: periodEndFromNow(1),
     },
   });
 
@@ -320,6 +438,73 @@ export async function finalizeSubscriptionPayment(input: {
     message:
       "Pagamento confirmado. Enviamos o link de cadastro para o e-mail informado.",
   };
+}
+
+/** Renovação mensal aprovada (já onboarded). */
+export async function recordSubscriptionRenewal(input: {
+  subscriptionId: string;
+  externalId?: string | null;
+  mpPreapprovalId?: string | null;
+}) {
+  const current = await prisma.softwareSubscription.findFirst({
+    where: { id: input.subscriptionId },
+  });
+  if (!current) {
+    throw new SubscriptionError("Assinatura não encontrada", 404);
+  }
+
+  const updated = await prisma.softwareSubscription.update({
+    where: { id: current.id },
+    data: {
+      billingStatus: SubscriptionBillingStatus.active,
+      lastPaymentAt: new Date(),
+      currentPeriodEnd: periodEndFromNow(1),
+      cancelAtPeriodEnd: false,
+      ...(input.externalId ? { externalId: input.externalId } : {}),
+      ...(input.mpPreapprovalId
+        ? { mpPreapprovalId: input.mpPreapprovalId }
+        : {}),
+    },
+  });
+
+  return mapSubscription(updated);
+}
+
+export async function markSubscriptionPastDue(subscriptionId: string) {
+  const updated = await prisma.softwareSubscription.update({
+    where: { id: subscriptionId },
+    data: { billingStatus: SubscriptionBillingStatus.past_due },
+  });
+  return mapSubscription(updated);
+}
+
+export async function markSubscriptionBillingCancelled(subscriptionId: string) {
+  const current = await prisma.softwareSubscription.findFirst({
+    where: { id: subscriptionId },
+  });
+  if (!current) {
+    throw new SubscriptionError("Assinatura não encontrada", 404);
+  }
+  const nextStatus = updatedStatusIfNeeded(current.status);
+  const updated = await prisma.softwareSubscription.update({
+    where: { id: subscriptionId },
+    data: {
+      billingStatus: SubscriptionBillingStatus.cancelled,
+      cancelAtPeriodEnd: false,
+      ...(nextStatus ? { status: nextStatus } : {}),
+    },
+  });
+  return mapSubscription(updated);
+}
+
+function updatedStatusIfNeeded(status: SoftwareSubscriptionStatus) {
+  if (
+    status === SoftwareSubscriptionStatus.pending_payment ||
+    status === SoftwareSubscriptionStatus.paid
+  ) {
+    return SoftwareSubscriptionStatus.cancelled;
+  }
+  return undefined;
 }
 
 export async function simulateSubscriptionPay(input: {
@@ -344,7 +529,7 @@ export async function simulateSubscriptionPay(input: {
   }
   return finalizeSubscriptionPayment({
     subscriptionId: input.subscriptionId,
-    method: "pix",
+    method: "card",
   });
 }
 
@@ -358,23 +543,114 @@ export async function getSubscriptionStatus(id: string) {
   return {
     ...mapSubscription(row),
     simulateToken: canSimulate ? sandboxPayToken(row.id) : null,
-    emailConfigured: isEmailConfigured(),
+    emailConfigured: isResendConfigured(),
   };
 }
 
 export async function findSubscriptionByCheckoutRef(ref: {
   id?: string | null;
   externalId?: string | null;
+  mpPreapprovalId?: string | null;
 }) {
-  if (!ref.id && !ref.externalId) return null;
+  if (!ref.id && !ref.externalId && !ref.mpPreapprovalId) return null;
   return prisma.softwareSubscription.findFirst({
     where: {
       OR: [
         ...(ref.id ? [{ id: ref.id }] : []),
         ...(ref.externalId ? [{ externalId: ref.externalId }] : []),
+        ...(ref.mpPreapprovalId
+          ? [{ mpPreapprovalId: ref.mpPreapprovalId }]
+          : []),
       ],
     },
   });
+}
+
+export type ClinicBillingInfo = {
+  billingStatus: SubscriptionBillingStatus | "none";
+  billingBlocked: boolean;
+  currentPeriodEnd: string | null;
+  cancelAtPeriodEnd: boolean;
+  complimentary: boolean;
+  hasSubscription: boolean;
+};
+
+export async function getClinicBillingInfo(
+  clinicId: string,
+): Promise<ClinicBillingInfo> {
+  const sub = await prisma.softwareSubscription.findFirst({
+    where: { clinicId },
+  });
+  if (!sub) {
+    return {
+      billingStatus: "none",
+      billingBlocked: false,
+      currentPeriodEnd: null,
+      cancelAtPeriodEnd: false,
+      complimentary: false,
+      hasSubscription: false,
+    };
+  }
+
+  const complimentary =
+    sub.method === "complimentary" ||
+    sub.billingStatus === SubscriptionBillingStatus.none;
+
+  let billingBlocked = false;
+  if (!complimentary) {
+    if (sub.billingStatus === SubscriptionBillingStatus.cancelled) {
+      billingBlocked = true;
+    } else if (sub.billingStatus === SubscriptionBillingStatus.past_due) {
+      const since = sub.lastPaymentAt?.getTime() ?? sub.paidAt?.getTime() ?? 0;
+      billingBlocked = Date.now() - since > PAST_DUE_GRACE_MS;
+    }
+  }
+
+  return {
+    billingStatus: sub.billingStatus,
+    billingBlocked,
+    currentPeriodEnd: sub.currentPeriodEnd?.toISOString() ?? null,
+    cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
+    complimentary,
+    hasSubscription: true,
+  };
+}
+
+export async function cancelClinicSubscription(clinicId: string) {
+  const sub = await prisma.softwareSubscription.findFirst({
+    where: { clinicId },
+  });
+  if (!sub) {
+    throw new SubscriptionError("Assinatura não encontrada para esta clínica", 404);
+  }
+  if (sub.method === "complimentary") {
+    throw new SubscriptionError("Conta complimentary não possui cobrança", 422);
+  }
+  if (sub.billingStatus === SubscriptionBillingStatus.cancelled) {
+    return mapSubscription(sub);
+  }
+
+  if (sub.mpPreapprovalId) {
+    try {
+      await cancelMercadoPagoPreapproval(sub.mpPreapprovalId);
+    } catch (err) {
+      throw new SubscriptionError(
+        err instanceof Error
+          ? err.message
+          : "Falha ao cancelar no Mercado Pago",
+        422,
+      );
+    }
+  }
+
+  const updated = await prisma.softwareSubscription.update({
+    where: { id: sub.id },
+    data: {
+      billingStatus: SubscriptionBillingStatus.cancelled,
+      cancelAtPeriodEnd: false,
+    },
+  });
+  return mapSubscription(updated);
 }
 
 export async function getSetupContext(token: string) {
@@ -529,6 +805,10 @@ export async function completeSubscriptionSignup(input: {
         clinicId: clinic.id,
         setupTokenHash: null,
         setupTokenExpiresAt: null,
+        billingStatus:
+          row.method === "complimentary"
+            ? SubscriptionBillingStatus.none
+            : SubscriptionBillingStatus.active,
       },
     });
 
