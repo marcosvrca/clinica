@@ -7,6 +7,85 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum AppointmentStatus {
+  pending
+  confirmed
+  cancelled
+  no_show
+}
+
+enum ClinicalRecordStatus {
+  draft
+  confirmed
+}
+
+enum PaymentStatus {
+  pending
+  paid
+  cancelled
+}
+
+enum PaymentMethod {
+  pix
+  card
+  cash
+}
+
+enum PaymentKind {
+  session
+  package
+}
+
+/// Provedor de pagamento online (checkout / PIX).
+enum OnlineProvider {
+  mercado_pago
+  stripe
+  asaas
+  pagarme
+}
+
+enum PackageStatus {
+  active
+  completed
+  cancelled
+}
+
+enum ExpenseCategory {
+  rent
+  utilities
+  supplies
+  payroll
+  marketing
+  taxes
+  other
+}
+
+enum StaffRole {
+  admin
+  professional
+}
+
+/// Assinatura do software (onboarding SaaS) — pagamento antes do cadastro.
+enum SoftwareSubscriptionStatus {
+  pending_payment
+  paid
+  completed
+  cancelled
+}
+
+enum ReminderKind {
+  confirmation
+  day_before
+  payment
+}
+
+enum ReminderStatus {
+  pending
+  sent
+  failed
+  cancelled
+}
+
 model Clinic {
   id        String   @id @default(cuid())
   name      String
@@ -22,6 +101,14 @@ model Clinic {
   patients        Patient[]
   appointments    Appointment[]
   clinicalRecords ClinicalRecord[]
+  calendarBlocks  CalendarBlock[]
+  payments        Payment[]
+  staffUsers      StaffUser[]
+  reminders       Reminder[]
+  calendarConnections CalendarConnection[]
+  sessionPackages SessionPackage[]
+  expenses        Expense[]
+  softwareSubscription SoftwareSubscription?
 }
 
 model Professional {
@@ -30,17 +117,72 @@ model Professional {
   name      String
   specialty String   @default("Psicologia")
   crp       String?
+  /// Cor da agenda (hex)
+  color     String   @default("#14b8a6")
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  clinic          Clinic           @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  clinic          Clinic                @relation(fields: [clinicId], references: [id], onDelete: Cascade)
   weeklyHours     WeeklyHour[]
   appointments    Appointment[]
   services        ServiceProfessional[]
   clinicalRecords ClinicalRecord[]
+  calendarBlocks  CalendarBlock[]
+  staffUser       StaffUser?
 
   @@index([clinicId, active])
+}
+
+model StaffUser {
+  id             String   @id @default(cuid())
+  clinicId       String
+  professionalId String?  @unique
+  email          String
+  name           String
+  passwordHash   String
+  role           StaffRole @default(professional)
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  clinic       Clinic        @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  professional Professional? @relation(fields: [professionalId], references: [id], onDelete: SetNull)
+
+  @@unique([clinicId, email])
+  @@index([clinicId, active])
+  @@index([email])
+}
+
+/// Checkout de assinatura do painel (antes de existir clínica/usuário).
+model SoftwareSubscription {
+  id                   String                     @id @default(cuid())
+  email                String
+  planCode             String                     @default("pro_monthly")
+  planName             String
+  amountCents          Int
+  status               SoftwareSubscriptionStatus @default(pending_payment)
+  method               String?
+  provider             OnlineProvider?
+  externalId           String?
+  checkoutUrl          String?
+  pixQrCode            String?
+  pixCopyPaste         String?
+  paidAt               DateTime?
+  setupTokenHash       String?
+  setupTokenExpiresAt  DateTime?
+  setupEmailSentAt     DateTime?
+  /// Em sandbox sem e-mail: token em claro só na resposta da API (nunca persistir em prod).
+  completedAt          DateTime?
+  clinicId             String?                    @unique
+  createdAt            DateTime                   @default(now())
+  updatedAt            DateTime                   @updatedAt
+
+  clinic Clinic? @relation(fields: [clinicId], references: [id], onDelete: SetNull)
+
+  @@index([email, status])
+  @@index([provider, externalId])
+  @@index([status, createdAt])
 }
 
 model WeeklyHour {
@@ -65,7 +207,7 @@ model Service {
   priceCents      Int?
   active          Boolean @default(true)
 
-  clinic        Clinic               @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  clinic        Clinic                @relation(fields: [clinicId], references: [id], onDelete: Cascade)
   professionals ServiceProfessional[]
   appointments  Appointment[]
 
@@ -82,6 +224,12 @@ model ServiceProfessional {
   @@id([serviceId, professionalId])
 }
 
+enum PatientDocumentKind {
+  document
+  attachment
+  photo
+}
+
 model Patient {
   id        String   @id @default(cuid())
   clinicId  String
@@ -89,69 +237,349 @@ model Patient {
   name      String?
   email     String?
   notes     String?
+
+  /// Dados pessoais
+  cpf           String?
+  birthDate     DateTime?
+  gender        String?
+  profession    String?
+  maritalStatus String?
+  photoPath     String?
+
+  /// Endereço
+  zipCode     String?
+  street      String?
+  addressNumber String?
+  complement  String?
+  district    String?
+  city        String?
+  state       String?
+
+  /// Contato de emergência
+  emergencyName     String?
+  emergencyPhone    String?
+  emergencyRelation String?
+
+  /// Convênio
+  insuranceName   String?
+  insuranceNumber String?
+  insurancePlan   String?
+
+  /// Responsável financeiro
+  financialName     String?
+  financialCpf      String?
+  financialPhone    String?
+  financialRelation String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  clinic          Clinic           @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  clinic          Clinic            @relation(fields: [clinicId], references: [id], onDelete: Cascade)
   appointments    Appointment[]
   clinicalRecords ClinicalRecord[]
+  payments        Payment[]
+  reminders       Reminder[]
+  documents       PatientDocument[]
+  sessionPackages SessionPackage[]
 
   @@unique([clinicId, phone])
   @@index([phone])
+  @@index([clinicId, cpf])
+  @@index([clinicId, name])
+}
+
+model PatientDocument {
+  id          String              @id @default(cuid())
+  clinicId    String
+  patientId   String
+  kind        PatientDocumentKind @default(attachment)
+  title       String
+  fileName    String
+  mimeType    String
+  sizeBytes   Int
+  storagePath String
+  createdAt   DateTime            @default(now())
+
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@index([patientId, kind, createdAt])
+  @@index([clinicId])
 }
 
 model Appointment {
-  id             String    @id @default(cuid())
+  id             String            @id @default(cuid())
   clinicId       String
   patientId      String
   professionalId String
   serviceId      String
   startsAt       DateTime
   endsAt         DateTime
-  status         String    @default("confirmed")
-  source         String    @default("whatsapp")
+  status         AppointmentStatus @default(confirmed)
+  source         String            @default("whatsapp")
   notes          String?
+  /// Link de videoconferência (Meet / Teams / etc.)
+  meetLink       String?
+  /// Ex.: WEEKLY
+  recurrenceRule String?
+  /// Agrupa ocorrências da mesma série
+  recurrenceGroupId String?
+  googleEventId  String?
+  outlookEventId String?
+  /// Confirmação de presença pelo paciente (WhatsApp / e-mail)
+  patientConfirmedAt DateTime?
   cancelledAt    DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
 
   clinic         Clinic          @relation(fields: [clinicId], references: [id], onDelete: Cascade)
-  patient        Patient         @relation(fields: [patientId], references: [id], onDelete: Cascade)
-  professional   Professional    @relation(fields: [professionalId], references: [id], onDelete: Cascade)
-  service        Service         @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  patient        Patient         @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  professional   Professional    @relation(fields: [professionalId], references: [id], onDelete: Restrict)
+  service        Service         @relation(fields: [serviceId], references: [id], onDelete: Restrict)
   clinicalRecord ClinicalRecord?
+  payment        Payment?
+  reminders      Reminder[]
 
   @@index([clinicId, startsAt, status])
   @@index([professionalId, startsAt, status])
   @@index([patientId, status, startsAt])
+  @@index([recurrenceGroupId])
+}
+
+/// Bloqueio de agenda (folga, reunião, indisponibilidade) — mesmo calendário das sessões.
+model CalendarBlock {
+  id             String   @id @default(cuid())
+  clinicId       String
+  professionalId String
+  startsAt       DateTime
+  endsAt         DateTime
+  reason         String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  clinic       Clinic       @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  professional Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+
+  @@index([clinicId, startsAt])
+  @@index([professionalId, startsAt, endsAt])
+}
+
+enum ClinicalFileKind {
+  pdf
+  exam
+  report
+  image
+  audio
 }
 
 /// Evolução clínica: rascunho revisável → confirmação no prontuário.
 /// Nada entra como registro definitivo sem status "confirmed".
 model ClinicalRecord {
-  id               String    @id @default(cuid())
+  id               String                @id @default(cuid())
   clinicId         String
   patientId        String
   professionalId   String
-  appointmentId    String?   @unique
-  /// draft | confirmed
-  status           String    @default("draft")
-  /// Observações livres da sessão
+  appointmentId    String?               @unique
+  status           ClinicalRecordStatus  @default(draft)
+  /// Observações livres (campo livre)
   sessionNotes     String?
-  /// Rascunho / texto de evolução (editável até confirmar)
-  draftContent     String    @default("")
-  /// Consentimento explícito para eventual gravação (futuro)
-  recordingConsent Boolean   @default(false)
+  /// Evolução — texto livre (editável até confirmar)
+  draftContent     String                @default("")
+  /// Objetivos do tratamento
+  objectives       String?
+  /// Hipóteses clínicas
+  hypotheses       String?
+  /// Temas recorrentes (rascunho IA / profissional)
+  recurringThemes  String?
+  /// Próximas intervenções sugeridas
+  nextInterventions String?
+  /// Pontos importantes da sessão
+  importantPoints  String?
+  /// Transcrição / notas de áudio (apoio; exige consentimento)
+  audioNotes       String?
+  /// Diagnósticos CID
+  diagnosisCid     String?
+  /// Diagnósticos DSM
+  diagnosisDsm     String?
+  /// Consentimento explícito para gravação / uso de áudio
+  recordingConsent Boolean               @default(false)
   confirmedAt      DateTime?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  /// Soft-delete: histórico clínico não é apagado fisicamente
+  deletedAt        DateTime?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
 
-  clinic       Clinic        @relation(fields: [clinicId], references: [id], onDelete: Cascade)
-  patient      Patient       @relation(fields: [patientId], references: [id], onDelete: Cascade)
-  professional Professional  @relation(fields: [professionalId], references: [id], onDelete: Cascade)
-  appointment  Appointment?  @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  clinic       Clinic               @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  patient      Patient              @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  professional Professional         @relation(fields: [professionalId], references: [id], onDelete: Restrict)
+  appointment  Appointment?         @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  files        ClinicalRecordFile[]
 
   @@index([clinicId, status, updatedAt])
   @@index([patientId, status, confirmedAt])
   @@index([professionalId, updatedAt])
+  @@index([clinicId, deletedAt])
+}
+
+/// Arquivos clínicos do prontuário (PDF, exames, laudos, imagens).
+model ClinicalRecordFile {
+  id          String           @id @default(cuid())
+  clinicId    String
+  recordId    String
+  kind        ClinicalFileKind @default(pdf)
+  title       String
+  fileName    String
+  mimeType    String
+  sizeBytes   Int
+  storagePath String
+  createdAt   DateTime         @default(now())
+
+  record ClinicalRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+
+  @@index([recordId, kind, createdAt])
+  @@index([clinicId])
+}
+
+/// Recebimento operacional (sessão avulsa ou pacote) — pago / pendente / cancelado.
+model Payment {
+  id            String         @id @default(cuid())
+  clinicId      String
+  patientId     String
+  appointmentId String?        @unique
+  packageId     String?
+  /// session = avulsa | package = pacote
+  kind          PaymentKind    @default(session)
+  amountCents   Int
+  status        PaymentStatus  @default(pending)
+  /// pix | card | cash
+  method        String?
+  notes         String?
+  paidAt        DateTime?
+  /// Checkout online
+  provider      OnlineProvider?
+  externalId    String?
+  checkoutUrl   String?
+  pixQrCode     String?
+  pixCopyPaste  String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  clinic      Clinic          @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  patient     Patient         @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  appointment Appointment?    @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  package     SessionPackage? @relation(fields: [packageId], references: [id], onDelete: SetNull)
+
+  @@index([clinicId, status, createdAt])
+  @@index([clinicId, paidAt])
+  @@index([patientId, status])
+  @@index([packageId])
+  @@index([clinicId, kind, status])
+  @@index([provider, externalId])
+}
+
+/// Pacote de sessões pré-pago / pré-contratado.
+model SessionPackage {
+  id            String        @id @default(cuid())
+  clinicId      String
+  patientId     String
+  name          String
+  totalSessions Int
+  usedSessions  Int           @default(0)
+  amountCents   Int
+  status        PackageStatus @default(active)
+  method        PaymentMethod?
+  notes         String?
+  startsAt      DateTime?
+  endsAt        DateTime?
+  paidAt        DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  clinic   Clinic    @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  patient  Patient   @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  payments Payment[]
+
+  @@index([clinicId, status, createdAt])
+  @@index([patientId, status])
+}
+
+/// Despesa operacional da clínica (aluguel, insumos, etc.).
+model Expense {
+  id          String           @id @default(cuid())
+  clinicId    String
+  title       String
+  category    ExpenseCategory  @default(other)
+  amountCents Int
+  method      PaymentMethod?
+  notes       String?
+  occurredAt  DateTime
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  clinic Clinic @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+
+  @@index([clinicId, occurredAt])
+  @@index([clinicId, category, occurredAt])
+}
+
+/// Lembrete objetivo (WhatsApp + e-mail). Sem conteúdo clínico.
+model Reminder {
+  id            String         @id @default(cuid())
+  clinicId      String
+  patientId     String
+  appointmentId String
+  /// confirmation | day_before | payment
+  kind          ReminderKind   @default(confirmation)
+  status        ReminderStatus @default(pending)
+  /// Texto objetivo já montado (horário, clínica — sem evolução clínica)
+  message       String
+  scheduledAt   DateTime
+  sentAt        DateTime?
+  /// Canal e-mail (Resend)
+  emailSentAt   DateTime?
+  /// Canal WhatsApp (bot)
+  whatsappSentAt DateTime?
+  error         String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  clinic      Clinic      @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  patient     Patient     @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  @@index([clinicId, status, scheduledAt])
+  @@index([appointmentId, kind])
+  @@index([status, scheduledAt])
+}
+
+enum CalendarProvider {
+  google
+  outlook
+}
+
+enum CalendarConnectionStatus {
+  disconnected
+  pending
+  connected
+  error
+}
+
+/// Reserva para integração externa futura (não usada — agenda interna é a fonte da verdade).
+model CalendarConnection {
+  id           String                   @id @default(cuid())
+  clinicId     String
+  provider     CalendarProvider
+  status       CalendarConnectionStatus @default(disconnected)
+  accountEmail String?
+  /// Tokens sensíveis: não expor na API do painel
+  accessToken  String?
+  refreshToken String?
+  lastSyncAt   DateTime?
+  lastError    String?
+  createdAt    DateTime                 @default(now())
+  updatedAt    DateTime                 @updatedAt
+
+  clinic Clinic @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+
+  @@unique([clinicId, provider])
+  @@index([clinicId, status])
 }

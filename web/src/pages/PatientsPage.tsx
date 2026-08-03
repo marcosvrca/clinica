@@ -1,10 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
-  CloudUpload,
   Download,
   Filter,
-  Heart,
   LayoutGrid,
   List,
   MoreHorizontal,
@@ -20,8 +18,9 @@ import { formatShortDay, formatTime } from "../lib/dates";
 import { avatarColor, initials, planTone } from "../lib/ui";
 
 export function PatientsPage() {
+  const [searchParams] = useSearchParams();
   const [data, setData] = useState<PatientsResponse | null>(null);
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(() => searchParams.get("q") ?? "");
   const [status, setStatus] = useState("todos");
   const [therapist, setTherapist] = useState("todos");
   const [plan, setPlan] = useState("todos");
@@ -30,6 +29,11 @@ export function PatientsPage() {
   const [view, setView] = useState<"list" | "grid">("list");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fromUrl = searchParams.get("q");
+    if (fromUrl != null) setQ(fromUrl);
+  }, [searchParams]);
 
   useEffect(() => {
     void (async () => {
@@ -72,11 +76,8 @@ export function PatientsPage() {
   return (
     <div className="patients-page">
       <div className="page-actions">
-        <button type="button" className="btn ghost">
-          <CloudUpload size={16} /> Importar pacientes
-        </button>
-        <Link to="/agendar" className="btn teal">
-          <Plus size={16} /> Novo paciente
+        <Link to="/pacientes/novo" className="btn teal">
+          <Plus size={16} strokeWidth={1.75} /> Novo paciente
         </Link>
       </div>
 
@@ -84,43 +85,30 @@ export function PatientsPage() {
 
       <section className="kpi-grid patients-kpi">
         <article className="stat-card">
-          <div className="stat-icon blue">
-            <Users size={18} />
+          <div className="stat-icon">
+            <Users size={18} strokeWidth={1.75} />
           </div>
           <div>
-            <span>Total de pacientes</span>
+            <span>Total</span>
             <strong>{stats?.total ?? "—"}</strong>
-            <em className="up">cadastros na clínica</em>
           </div>
         </article>
         <article className="stat-card">
-          <div className="stat-icon green">
-            <UserCheck size={18} />
+          <div className="stat-icon">
+            <UserCheck size={18} strokeWidth={1.75} />
           </div>
           <div>
-            <span>Pacientes ativos</span>
+            <span>Ativos</span>
             <strong>{stats?.active ?? "—"}</strong>
-            <em>{stats ? `${stats.activePct}% do total` : ""}</em>
           </div>
         </article>
         <article className="stat-card">
-          <div className="stat-icon lilac">
-            <UserPlus size={18} />
+          <div className="stat-icon">
+            <UserPlus size={18} strokeWidth={1.75} />
           </div>
           <div>
-            <span>Novos este mês</span>
+            <span>Novos no mês</span>
             <strong>{stats?.newThisMonth ?? "—"}</strong>
-            <em className="up">no mês atual</em>
-          </div>
-        </article>
-        <article className="stat-card">
-          <div className="stat-icon teal">
-            <Heart size={18} />
-          </div>
-          <div>
-            <span>Retorno médio</span>
-            <strong>{stats ? `${stats.returnRate}%` : "—"}</strong>
-            <em>Taxa de reconsulta</em>
           </div>
         </article>
       </section>
@@ -306,15 +294,18 @@ function PatientRow({ patient: p }: { patient: Patient }) {
         <input type="checkbox" aria-label={`Selecionar ${name}`} />
       </td>
       <td>
-        <div className="person-cell">
+        <Link to={`/pacientes/${p.id}`} className="person-cell">
           <div className="avatar sm" style={{ background: avatarColor(name) }}>
             {initials(p.name, p.phone)}
           </div>
           <div>
             <strong>{name}</strong>
-            <span className="muted">{p.appointmentsCount} consultas</span>
+            <span className="muted">
+              {p.cpf ? `CPF ${p.cpf} · ` : ""}
+              {p.appointmentsCount} consultas
+            </span>
           </div>
-        </div>
+        </Link>
       </td>
       <td>
         <div className="stack">
@@ -365,10 +356,10 @@ function PatientRow({ patient: p }: { patient: Patient }) {
       </td>
       <td>
         <Link
-          to={`/prontuarios?patientId=${p.id}`}
+          to={`/pacientes/${p.id}`}
           className="icon-btn soft"
-          aria-label="Ver prontuário"
-          title="Ver prontuário"
+          aria-label="Abrir cadastro"
+          title="Abrir cadastro"
         >
           <MoreHorizontal size={16} />
         </Link>
@@ -381,7 +372,7 @@ function PatientCard({ patient: p }: { patient: Patient }) {
   const name = p.name ?? "Sem nome";
   return (
     <article className="patient-card">
-      <div className="person-cell">
+      <Link to={`/pacientes/${p.id}`} className="person-cell">
         <div className="avatar" style={{ background: avatarColor(name) }}>
           {initials(p.name, p.phone)}
         </div>
@@ -389,16 +380,21 @@ function PatientCard({ patient: p }: { patient: Patient }) {
           <strong>{name}</strong>
           <span className="muted">{p.phone}</span>
         </div>
-      </div>
+      </Link>
       <div className="card-meta">
         <span className={`pill ${planTone(p.plan)}`}>{p.plan}</span>
         <span className={`status-dot ${p.status === "ativo" ? "ok" : "warn"}`}>
           {p.status === "ativo" ? "Ativo" : "Em pausa"}
         </span>
       </div>
-      <Link to={`/prontuarios?patientId=${p.id}`} className="btn ghost sm">
-        Prontuário
-      </Link>
+      <div style={{ display: "flex", gap: "0.45rem" }}>
+        <Link to={`/pacientes/${p.id}`} className="btn ghost sm">
+          Cadastro
+        </Link>
+        <Link to={`/prontuarios?patientId=${p.id}`} className="btn ghost sm">
+          Prontuário
+        </Link>
+      </div>
     </article>
   );
 }

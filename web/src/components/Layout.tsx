@@ -1,21 +1,21 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
-  Bell,
   Brain,
   CalendarDays,
   ClipboardList,
   FileText,
   LayoutDashboard,
-  Search,
+  LogOut,
   Settings,
   Users,
   Wallet,
   BarChart3,
-  ChevronDown,
 } from "lucide-react";
 import { api } from "../api/client";
+import { clearSession, getStoredUser } from "../lib/auth";
 import { initials } from "../lib/ui";
+import { TopbarSearch } from "./TopbarSearch";
 
 type ShellCtx = {
   clinicName: string;
@@ -34,89 +34,90 @@ export function useShell() {
 }
 
 const NAV = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
+  { to: "/", label: "Início", icon: LayoutDashboard, end: true },
   { to: "/pacientes", label: "Pacientes", icon: Users },
   { to: "/agenda", label: "Agenda", icon: CalendarDays },
   { to: "/sessoes", label: "Sessões", icon: ClipboardList },
-  { to: "/financeiro", label: "Financeiro", icon: Wallet },
   { to: "/prontuarios", label: "Prontuários", icon: FileText },
+  { to: "/financeiro", label: "Financeiro", icon: Wallet },
   { to: "/relatorios", label: "Relatórios", icon: BarChart3 },
   { to: "/configuracoes", label: "Configurações", icon: Settings },
 ] as const;
 
-const PAGE_META: Record<
-  string,
-  { title: string; subtitle: string; search: string; quote: string }
-> = {
+const PAGE_META: Record<string, { title: string; subtitle: string; search: string }> = {
   "/": {
-    title: "Dashboard",
-    subtitle: "Bem-vinda de volta",
-    search: "Buscar pacientes, sessões, prontuários...",
-    quote: "Acolher é transformar vidas todos os dias.",
+    title: "Início",
+    subtitle: "O que precisa da sua atenção hoje",
+    search: "Buscar pacientes…",
   },
   "/pacientes": {
     title: "Pacientes",
-    subtitle: "Gerencie e acompanhe seus pacientes",
-    search: "Buscar pacientes pelo nome, telefone ou e-mail...",
-    quote: "Cuidar de pessoas transforma vidas. E você transforma todos os dias.",
+    subtitle: "Cadastros e acompanhamento",
+    search: "Buscar pacientes…",
+  },
+  "/pacientes/novo": {
+    title: "Novo paciente",
+    subtitle: "Cadastro",
+    search: "Buscar pacientes…",
   },
   "/agenda": {
     title: "Agenda",
-    subtitle: "Visualize e gerencie seus atendimentos",
-    search: "Buscar pacientes, horários ou sessões...",
-    quote: "Organização que gera mais tempo para o que importa: seus pacientes.",
+    subtitle: "Sessões e bloqueios",
+    search: "Buscar pacientes…",
   },
   "/agendar": {
     title: "Novo atendimento",
-    subtitle: "Escolha serviço, horário e paciente",
-    search: "Buscar pacientes, horários ou sessões...",
-    quote: "Organização que gera mais tempo para o que importa: seus pacientes.",
+    subtitle: "Serviço, horário e paciente",
+    search: "Buscar pacientes…",
   },
   "/sessoes": {
     title: "Sessões",
-    subtitle: "Serviços e equipe da clínica",
-    search: "Buscar serviços ou profissionais...",
-    quote: "Cuidar de pessoas transforma vidas. E você transforma todos os dias.",
+    subtitle: "Atendimentos, serviços e equipe",
+    search: "Buscar pacientes…",
   },
   "/financeiro": {
     title: "Financeiro",
-    subtitle: "Acompanhe a receita estimada da clínica",
-    search: "Buscar lançamentos...",
-    quote: "Organização que gera mais tempo para o que importa: seus pacientes.",
+    subtitle: "Recebimentos e pendências",
+    search: "Buscar pacientes…",
   },
   "/prontuarios": {
     title: "Prontuários",
-    subtitle: "Registros clínicos dos pacientes",
-    search: "Buscar prontuários...",
-    quote: "Cuidar de pessoas transforma vidas. E você transforma todos os dias.",
+    subtitle: "Rascunhos e evoluções confirmadas",
+    search: "Buscar pacientes…",
   },
   "/relatorios": {
     title: "Relatórios",
-    subtitle: "Indicadores e evolução da clínica",
-    search: "Buscar relatórios...",
-    quote: "Organização que gera mais tempo para o que importa: seus pacientes.",
+    subtitle: "Indicadores da clínica",
+    search: "Buscar pacientes…",
   },
   "/configuracoes": {
     title: "Configurações",
-    subtitle: "Preferências do painel e da API",
-    search: "Buscar configurações...",
-    quote: "Cuidar de pessoas transforma vidas. E você transforma todos os dias.",
+    subtitle: "Preferências e integrações",
+    search: "Buscar pacientes…",
   },
 };
 
 export function Layout() {
   const location = useLocation();
-  const [clinicName, setClinicName] = useState("Clínica Bem Estar");
-  const [professionalName, setProfessionalName] = useState("Dra. Ana Carolina");
+  const navigate = useNavigate();
+  const stored = getStoredUser();
+  const [clinicName, setClinicName] = useState(stored?.clinic.name ?? "Clínica Bem Estar");
+  const [professionalName, setProfessionalName] = useState(
+    stored?.name ?? "Dra. Ana Carolina",
+  );
   const [specialty, setSpecialty] = useState("Psicóloga");
 
   useEffect(() => {
     void (async () => {
       try {
-        const [clinic, dash] = await Promise.all([api.clinic(), api.dashboard()]);
+        const [clinic, dash, me] = await Promise.all([
+          api.clinic(),
+          api.dashboard(),
+          api.me(),
+        ]);
         setClinicName(clinic.name);
+        setProfessionalName(me.name);
         if (dash.professional) {
-          setProfessionalName(dash.professional.name);
           setSpecialty(
             dash.professional.specialty?.toLowerCase().includes("psic")
               ? "Psicóloga"
@@ -129,16 +130,30 @@ export function Layout() {
     })();
   }, []);
 
-  const meta = PAGE_META[location.pathname] ?? {
-    title: clinicName,
-    subtitle: "",
-    search: "Buscar...",
-    quote: "Cuidar de pessoas transforma vidas. E você transforma todos os dias.",
-  };
+  function logout() {
+    clearSession();
+    navigate("/login", { replace: true });
+  }
+
+  const meta =
+    PAGE_META[location.pathname] ??
+    (location.pathname.startsWith("/pacientes/")
+      ? {
+          title: location.pathname.endsWith("/editar")
+            ? "Editar paciente"
+            : "Paciente",
+          subtitle: "Dados e histórico",
+          search: "Buscar…",
+        }
+      : {
+          title: clinicName,
+          subtitle: "",
+          search: "Buscar…",
+        });
 
   const subtitle =
     location.pathname === "/"
-      ? `Bem-vinda de volta, ${professionalName}`
+      ? `Olá, ${professionalName.split(" ")[0]}`
       : meta.subtitle;
 
   const ctx = useMemo(
@@ -152,15 +167,15 @@ export function Layout() {
         <aside className="sidebar">
           <div className="brand">
             <div className="brand-icon" aria-hidden>
-              <Brain size={22} strokeWidth={2.2} />
+              <Brain size={20} strokeWidth={1.75} />
             </div>
             <div>
-              <p className="brand-title">Clínica Bem Estar</p>
-              <p className="brand-sub">Psicologia</p>
+              <p className="brand-title">Bem Estar</p>
+              <p className="brand-sub">Clínica</p>
             </div>
           </div>
 
-          <nav className="side-nav">
+          <nav className="side-nav" aria-label="Principal">
             {NAV.map((item) => {
               const Icon = item.icon;
               return (
@@ -170,19 +185,30 @@ export function Layout() {
                   end={"end" in item ? item.end : false}
                   className={({ isActive }) => (isActive ? "nav-item active" : "nav-item")}
                 >
-                  <Icon size={18} strokeWidth={2} />
+                  <Icon size={18} strokeWidth={1.75} />
                   <span>{item.label}</span>
                 </NavLink>
               );
             })}
           </nav>
 
-          <div className="side-quote">
-            <div className="quote-art" aria-hidden>
-              <span className="quote-plant">🪴</span>
-              <span className="quote-chair">🪑</span>
+          <div className="sidebar-foot">
+            <div className="profile sidebar-profile">
+              <div className="avatar">{initials(professionalName, "AC")}</div>
+              <div>
+                <strong>{professionalName}</strong>
+                <span>{specialty}</span>
+              </div>
             </div>
-            <p>{meta.quote}</p>
+            <button
+              type="button"
+              className="icon-btn"
+              aria-label="Sair"
+              title="Sair"
+              onClick={logout}
+            >
+              <LogOut size={18} strokeWidth={1.75} />
+            </button>
           </div>
         </aside>
 
@@ -190,28 +216,21 @@ export function Layout() {
           <header className="topbar">
             <div className="topbar-title">
               <h1>{meta.title}</h1>
-              {subtitle && <p>{subtitle}</p>}
+              {subtitle ? <p>{subtitle}</p> : null}
             </div>
 
-            <label className="search">
-              <Search size={16} />
-              <input placeholder={meta.search} />
-              <kbd>Ctrl + K</kbd>
-            </label>
+            <TopbarSearch placeholder={meta.search} />
 
             <div className="topbar-actions">
-              <button type="button" className="icon-btn" aria-label="Notificações">
-                <Bell size={18} />
-                <span className="badge-dot">3</span>
+              <button
+                type="button"
+                className="icon-btn topbar-logout"
+                aria-label="Sair"
+                title="Sair"
+                onClick={logout}
+              >
+                <LogOut size={18} strokeWidth={1.75} />
               </button>
-              <div className="profile">
-                <div className="avatar">{initials(professionalName, "AC")}</div>
-                <div>
-                  <strong>{professionalName}</strong>
-                  <span>{specialty}</span>
-                </div>
-                <ChevronDown size={16} className="muted-icon" />
-              </div>
             </div>
           </header>
 

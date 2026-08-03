@@ -1,4 +1,17 @@
+import { mkdir, unlink, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { randomUUID } from "node:crypto";
+import {
+  AppointmentStatus,
+  ClinicalFileKind,
+  ClinicalRecordStatus,
+} from "@prisma/client";
 import { prisma } from "../infra/prisma.js";
+import {
+  decryptClinical,
+  encryptClinical,
+  encryptClinicalRequired,
+} from "../lib/clinical-crypto.js";
 
 export class ClinicalRecordError extends Error {
   constructor(
@@ -9,6 +22,8 @@ export class ClinicalRecordError extends Error {
   }
 }
 
+const UPLOAD_ROOT = path.resolve(process.cwd(), "uploads", "clinical");
+
 const recordInclude = {
   patient: true,
   professional: true,
@@ -17,13 +32,58 @@ const recordInclude = {
       service: true,
     },
   },
+  files: { orderBy: { createdAt: "desc" as const } },
 } as const;
+
+const notDeleted = { deletedAt: null as Date | null };
+
+export type ClinicalWriteFields = {
+  sessionNotes?: string | null;
+  draftContent?: string;
+  objectives?: string | null;
+  hypotheses?: string | null;
+  recurringThemes?: string | null;
+  nextInterventions?: string | null;
+  importantPoints?: string | null;
+  audioNotes?: string | null;
+  diagnosisCid?: string | null;
+  diagnosisDsm?: string | null;
+  recordingConsent?: boolean;
+};
+
+function mapFile(f: {
+  id: string;
+  kind: ClinicalFileKind;
+  title: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  createdAt: Date;
+}) {
+  return {
+    id: f.id,
+    kind: f.kind,
+    title: f.title,
+    fileName: f.fileName,
+    mimeType: f.mimeType,
+    sizeBytes: f.sizeBytes,
+    createdAt: f.createdAt.toISOString(),
+  };
+}
 
 export function mapClinicalRecord(r: {
   id: string;
-  status: string;
+  status: ClinicalRecordStatus;
   sessionNotes: string | null;
   draftContent: string;
+  objectives: string | null;
+  hypotheses: string | null;
+  recurringThemes?: string | null;
+  nextInterventions?: string | null;
+  importantPoints?: string | null;
+  audioNotes?: string | null;
+  diagnosisCid: string | null;
+  diagnosisDsm: string | null;
   recordingConsent: boolean;
   confirmedAt: Date | null;
   createdAt: Date;
@@ -36,16 +96,41 @@ export function mapClinicalRecord(r: {
     endsAt: Date;
     service: { id: string; name: string };
   } | null;
+  files?: {
+    id: string;
+    kind: ClinicalFileKind;
+    title: string;
+    fileName: string;
+    mimeType: string;
+    sizeBytes: number;
+    createdAt: Date;
+  }[];
 }) {
   return {
     id: r.id,
-    status: r.status as "draft" | "confirmed",
-    sessionNotes: r.sessionNotes,
-    draftContent: r.draftContent,
+    status: r.status,
+    /** Evolução / resumo — texto livre */
+    evolution: decryptClinical(r.draftContent) ?? "",
+    draftContent: decryptClinical(r.draftContent) ?? "",
+    /** Objetivos do tratamento */
+    objectives: decryptClinical(r.objectives) ?? "",
+    /** Hipóteses clínicas */
+    hypotheses: decryptClinical(r.hypotheses) ?? "",
+    recurringThemes: decryptClinical(r.recurringThemes ?? null) ?? "",
+    nextInterventions: decryptClinical(r.nextInterventions ?? null) ?? "",
+    importantPoints: decryptClinical(r.importantPoints ?? null) ?? "",
+    audioNotes: decryptClinical(r.audioNotes ?? null) ?? "",
+    /** Diagnósticos */
+    diagnosisCid: decryptClinical(r.diagnosisCid) ?? "",
+    diagnosisDsm: decryptClinical(r.diagnosisDsm) ?? "",
+    /** Observações — campo livre */
+    observations: decryptClinical(r.sessionNotes) ?? "",
+    sessionNotes: decryptClinical(r.sessionNotes),
     recordingConsent: r.recordingConsent,
     confirmedAt: r.confirmedAt?.toISOString() ?? null,
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
+    files: (r.files ?? []).map(mapFile),
     patient: {
       id: r.patient.id,
       phone: r.patient.phone,
@@ -69,15 +154,79 @@ export function mapClinicalRecord(r: {
   };
 }
 
+function encryptFields(input: ClinicalWriteFields) {
+  return {
+    ...(input.sessionNotes !== undefined
+      ? { sessionNotes: encryptClinical(input.sessionNotes) }
+      : {}),
+    ...(input.draftContent !== undefined
+      ? { draftContent: encryptClinicalRequired(input.draftContent) }
+      : {}),
+    ...(input.objectives !== undefined
+      ? { objectives: encryptClinical(input.objectives) }
+      : {}),
+    ...(input.hypotheses !== undefined
+      ? { hypotheses: encryptClinical(input.hypotheses) }
+      : {}),
+    ...(input.recurringThemes !== undefined
+      ? { recurringThemes: encryptClinical(input.recurringThemes) }
+      : {}),
+    ...(input.nextInterventions !== undefined
+      ? { nextInterventions: encryptClinical(input.nextInterventions) }
+      : {}),
+    ...(input.importantPoints !== undefined
+      ? { importantPoints: encryptClinical(input.importantPoints) }
+      : {}),
+    ...(input.audioNotes !== undefined
+      ? { audioNotes: encryptClinical(input.audioNotes) }
+      : {}),
+    ...(input.diagnosisCid !== undefined
+      ? { diagnosisCid: encryptClinical(input.diagnosisCid) }
+      : {}),
+    ...(input.diagnosisDsm !== undefined
+      ? { diagnosisDsm: encryptClinical(input.diagnosisDsm) }
+      : {}),
+    ...(input.recordingConsent !== undefined
+      ? { recordingConsent: input.recordingConsent }
+      : {}),
+  };
+}
+
+function hasConfirmableContent(current: {
+  draftContent: string;
+  sessionNotes: string | null;
+  objectives: string | null;
+  hypotheses: string | null;
+  recurringThemes?: string | null;
+  nextInterventions?: string | null;
+  importantPoints?: string | null;
+  diagnosisCid: string | null;
+  diagnosisDsm: string | null;
+}) {
+  const parts = [
+    decryptClinical(current.draftContent),
+    decryptClinical(current.sessionNotes),
+    decryptClinical(current.objectives),
+    decryptClinical(current.hypotheses),
+    decryptClinical(current.recurringThemes ?? null),
+    decryptClinical(current.nextInterventions ?? null),
+    decryptClinical(current.importantPoints ?? null),
+    decryptClinical(current.diagnosisCid),
+    decryptClinical(current.diagnosisDsm),
+  ];
+  return parts.some((p) => (p ?? "").trim().length > 0);
+}
+
 export async function listClinicalRecords(input: {
   clinicId: string;
   patientId?: string;
-  status?: string;
+  status?: ClinicalRecordStatus;
   professionalId?: string;
 }) {
   const items = await prisma.clinicalRecord.findMany({
     where: {
       clinicId: input.clinicId,
+      ...notDeleted,
       ...(input.patientId ? { patientId: input.patientId } : {}),
       ...(input.status ? { status: input.status } : {}),
       ...(input.professionalId ? { professionalId: input.professionalId } : {}),
@@ -86,23 +235,40 @@ export async function listClinicalRecords(input: {
     orderBy: [{ updatedAt: "desc" }],
     take: 200,
   });
-  // Rascunhos primeiro (aguardando revisão), depois confirmados
   const sorted = [...items].sort((a, b) => {
     if (a.status === b.status) {
       return b.updatedAt.getTime() - a.updatedAt.getTime();
     }
-    return a.status === "draft" ? -1 : 1;
+    return a.status === ClinicalRecordStatus.draft ? -1 : 1;
   });
   return sorted.map(mapClinicalRecord);
 }
 
-export async function getClinicalRecordStats(clinicId: string) {
+export async function getClinicalRecordStats(
+  clinicId: string,
+  professionalId?: string,
+) {
+  const scope = professionalId ? { professionalId } : {};
   const [drafts, confirmed, patientsWithRecords] = await Promise.all([
-    prisma.clinicalRecord.count({ where: { clinicId, status: "draft" } }),
-    prisma.clinicalRecord.count({ where: { clinicId, status: "confirmed" } }),
+    prisma.clinicalRecord.count({
+      where: {
+        clinicId,
+        status: ClinicalRecordStatus.draft,
+        ...notDeleted,
+        ...scope,
+      },
+    }),
+    prisma.clinicalRecord.count({
+      where: {
+        clinicId,
+        status: ClinicalRecordStatus.confirmed,
+        ...notDeleted,
+        ...scope,
+      },
+    }),
     prisma.clinicalRecord.groupBy({
       by: ["patientId"],
-      where: { clinicId },
+      where: { clinicId, ...notDeleted, ...scope },
     }),
   ]);
   return {
@@ -112,9 +278,18 @@ export async function getClinicalRecordStats(clinicId: string) {
   };
 }
 
-export async function getClinicalRecord(clinicId: string, id: string) {
+export async function getClinicalRecord(
+  clinicId: string,
+  id: string,
+  professionalId?: string,
+) {
   const record = await prisma.clinicalRecord.findFirst({
-    where: { id, clinicId },
+    where: {
+      id,
+      clinicId,
+      ...notDeleted,
+      ...(professionalId ? { professionalId } : {}),
+    },
     include: recordInclude,
   });
   if (!record) throw new ClinicalRecordError("Registro não encontrado", 404);
@@ -126,18 +301,32 @@ export async function createClinicalRecord(input: {
   patientId?: string;
   professionalId?: string;
   appointmentId?: string;
-  sessionNotes?: string;
-  draftContent?: string;
-  recordingConsent?: boolean;
-}) {
+  scopedProfessionalId?: string;
+} & ClinicalWriteFields) {
+  const forcedPro = input.scopedProfessionalId;
+  if (forcedPro && input.professionalId && input.professionalId !== forcedPro) {
+    throw new ClinicalRecordError(
+      "Sem permissão para criar registro de outro profissional",
+      403,
+    );
+  }
+  const professionalId = forcedPro ?? input.professionalId;
+
   if (input.appointmentId) {
-    const existing = await prisma.clinicalRecord.findUnique({
-      where: { appointmentId: input.appointmentId },
+    const existing = await prisma.clinicalRecord.findFirst({
+      where: {
+        appointmentId: input.appointmentId,
+        clinicId: input.clinicId,
+        ...notDeleted,
+      },
       include: recordInclude,
     });
     if (existing) {
-      if (existing.clinicId !== input.clinicId) {
-        throw new ClinicalRecordError("Registro não encontrado", 404);
+      if (forcedPro && existing.professionalId !== forcedPro) {
+        throw new ClinicalRecordError(
+          "Sem permissão para acessar este registro",
+          403,
+        );
       }
       return mapClinicalRecord(existing);
     }
@@ -146,7 +335,10 @@ export async function createClinicalRecord(input: {
       where: {
         id: input.appointmentId,
         clinicId: input.clinicId,
-        status: { in: ["confirmed", "pending"] },
+        ...(forcedPro ? { professionalId: forcedPro } : {}),
+        status: {
+          in: [AppointmentStatus.confirmed, AppointmentStatus.pending],
+        },
       },
     });
     if (!appointment) {
@@ -159,17 +351,27 @@ export async function createClinicalRecord(input: {
         patientId: appointment.patientId,
         professionalId: appointment.professionalId,
         appointmentId: appointment.id,
-        sessionNotes: input.sessionNotes ?? appointment.notes,
-        draftContent: input.draftContent ?? "",
+        sessionNotes: encryptClinical(
+          input.sessionNotes ?? appointment.notes,
+        ),
+        draftContent: encryptClinicalRequired(input.draftContent ?? ""),
+        objectives: encryptClinical(input.objectives ?? null),
+        hypotheses: encryptClinical(input.hypotheses ?? null),
+        recurringThemes: encryptClinical(input.recurringThemes ?? null),
+        nextInterventions: encryptClinical(input.nextInterventions ?? null),
+        importantPoints: encryptClinical(input.importantPoints ?? null),
+        audioNotes: encryptClinical(input.audioNotes ?? null),
+        diagnosisCid: encryptClinical(input.diagnosisCid ?? null),
+        diagnosisDsm: encryptClinical(input.diagnosisDsm ?? null),
         recordingConsent: input.recordingConsent ?? false,
-        status: "draft",
+        status: ClinicalRecordStatus.draft,
       },
       include: recordInclude,
     });
     return mapClinicalRecord(created);
   }
 
-  if (!input.patientId || !input.professionalId) {
+  if (!input.patientId || !professionalId) {
     throw new ClinicalRecordError(
       "Informe appointmentId ou patientId + professionalId",
       422,
@@ -183,7 +385,7 @@ export async function createClinicalRecord(input: {
 
   const professional = await prisma.professional.findFirst({
     where: {
-      id: input.professionalId,
+      id: professionalId,
       clinicId: input.clinicId,
       active: true,
     },
@@ -197,10 +399,18 @@ export async function createClinicalRecord(input: {
       clinicId: input.clinicId,
       patientId: patient.id,
       professionalId: professional.id,
-      sessionNotes: input.sessionNotes ?? null,
-      draftContent: input.draftContent ?? "",
+      sessionNotes: encryptClinical(input.sessionNotes ?? null),
+      draftContent: encryptClinicalRequired(input.draftContent ?? ""),
+      objectives: encryptClinical(input.objectives ?? null),
+      hypotheses: encryptClinical(input.hypotheses ?? null),
+      recurringThemes: encryptClinical(input.recurringThemes ?? null),
+      nextInterventions: encryptClinical(input.nextInterventions ?? null),
+      importantPoints: encryptClinical(input.importantPoints ?? null),
+      audioNotes: encryptClinical(input.audioNotes ?? null),
+      diagnosisCid: encryptClinical(input.diagnosisCid ?? null),
+      diagnosisDsm: encryptClinical(input.diagnosisDsm ?? null),
       recordingConsent: input.recordingConsent ?? false,
-      status: "draft",
+      status: ClinicalRecordStatus.draft,
     },
     include: recordInclude,
   });
@@ -210,26 +420,36 @@ export async function createClinicalRecord(input: {
 export async function updateClinicalRecord(input: {
   clinicId: string;
   id: string;
-  sessionNotes?: string | null;
-  draftContent?: string;
-  recordingConsent?: boolean;
   professionalId?: string;
-}) {
+  /** Quando definido, só permite editar registros deste profissional. */
+  scopedProfessionalId?: string;
+} & ClinicalWriteFields) {
   const current = await prisma.clinicalRecord.findFirst({
-    where: { id: input.id, clinicId: input.clinicId },
+    where: {
+      id: input.id,
+      clinicId: input.clinicId,
+      ...notDeleted,
+      ...(input.scopedProfessionalId
+        ? { professionalId: input.scopedProfessionalId }
+        : {}),
+    },
   });
   if (!current) throw new ClinicalRecordError("Registro não encontrado", 404);
-  if (current.status === "confirmed") {
+  if (current.status === ClinicalRecordStatus.confirmed) {
     throw new ClinicalRecordError(
       "Registro confirmado no prontuário não pode ser editado. Crie um novo rascunho se necessário.",
       422,
     );
   }
 
-  if (input.professionalId) {
+  const nextProId = input.scopedProfessionalId
+    ? input.scopedProfessionalId
+    : input.professionalId;
+
+  if (nextProId && nextProId !== current.professionalId) {
     const pro = await prisma.professional.findFirst({
       where: {
-        id: input.professionalId,
+        id: nextProId,
         clinicId: input.clinicId,
         active: true,
       },
@@ -240,33 +460,34 @@ export async function updateClinicalRecord(input: {
   const updated = await prisma.clinicalRecord.update({
     where: { id: current.id },
     data: {
-      ...(input.sessionNotes !== undefined
-        ? { sessionNotes: input.sessionNotes }
-        : {}),
-      ...(input.draftContent !== undefined
-        ? { draftContent: input.draftContent }
-        : {}),
-      ...(input.recordingConsent !== undefined
-        ? { recordingConsent: input.recordingConsent }
-        : {}),
-      ...(input.professionalId ? { professionalId: input.professionalId } : {}),
+      ...encryptFields(input),
+      ...(nextProId ? { professionalId: nextProId } : {}),
     },
     include: recordInclude,
   });
   return mapClinicalRecord(updated);
 }
 
-export async function confirmClinicalRecord(clinicId: string, id: string) {
+export async function confirmClinicalRecord(
+  clinicId: string,
+  id: string,
+  scopedProfessionalId?: string,
+) {
   const current = await prisma.clinicalRecord.findFirst({
-    where: { id, clinicId },
+    where: {
+      id,
+      clinicId,
+      ...notDeleted,
+      ...(scopedProfessionalId ? { professionalId: scopedProfessionalId } : {}),
+    },
   });
   if (!current) throw new ClinicalRecordError("Registro não encontrado", 404);
-  if (current.status === "confirmed") {
+  if (current.status === ClinicalRecordStatus.confirmed) {
     throw new ClinicalRecordError("Registro já confirmado no prontuário", 422);
   }
-  if (!current.draftContent.trim()) {
+  if (!hasConfirmableContent(current)) {
     throw new ClinicalRecordError(
-      "Escreva o rascunho de evolução antes de confirmar",
+      "Preencha ao menos uma seção clínica (evolução, objetivos, hipóteses, diagnósticos ou observações) antes de confirmar",
       422,
     );
   }
@@ -274,10 +495,150 @@ export async function confirmClinicalRecord(clinicId: string, id: string) {
   const updated = await prisma.clinicalRecord.update({
     where: { id: current.id },
     data: {
-      status: "confirmed",
+      status: ClinicalRecordStatus.confirmed,
       confirmedAt: new Date(),
     },
     include: recordInclude,
   });
   return mapClinicalRecord(updated);
+}
+
+export async function softDeleteClinicalRecord(
+  clinicId: string,
+  id: string,
+  scopedProfessionalId?: string,
+) {
+  const current = await prisma.clinicalRecord.findFirst({
+    where: {
+      id,
+      clinicId,
+      ...notDeleted,
+      ...(scopedProfessionalId ? { professionalId: scopedProfessionalId } : {}),
+    },
+  });
+  if (!current) throw new ClinicalRecordError("Registro não encontrado", 404);
+  if (current.status === ClinicalRecordStatus.confirmed) {
+    throw new ClinicalRecordError(
+      "Registro confirmado não pode ser excluído. Contate a administração se necessário.",
+      422,
+    );
+  }
+  await prisma.clinicalRecord.update({
+    where: { id: current.id },
+    data: { deletedAt: new Date() },
+  });
+  return { ok: true };
+}
+
+export async function saveClinicalRecordFile(input: {
+  clinicId: string;
+  recordId: string;
+  kind: ClinicalFileKind;
+  title: string;
+  fileName: string;
+  mimeType: string;
+  buffer: Buffer;
+  scopedProfessionalId?: string;
+}) {
+  const record = await prisma.clinicalRecord.findFirst({
+    where: {
+      id: input.recordId,
+      clinicId: input.clinicId,
+      ...notDeleted,
+      ...(input.scopedProfessionalId
+        ? { professionalId: input.scopedProfessionalId }
+        : {}),
+    },
+  });
+  if (!record) throw new ClinicalRecordError("Registro não encontrado", 404);
+  if (record.status === ClinicalRecordStatus.confirmed) {
+    throw new ClinicalRecordError(
+      "Não é possível anexar arquivos a um registro já confirmado",
+      422,
+    );
+  }
+
+  const dir = path.join(UPLOAD_ROOT, input.recordId);
+  await mkdir(dir, { recursive: true });
+  const safeName = input.fileName.replace(/[^\w.\-]+/g, "_").slice(0, 120);
+  const stored = `${randomUUID()}_${safeName}`;
+  const storagePath = path.join(dir, stored);
+  await writeFile(storagePath, input.buffer);
+  const relative = path.relative(path.resolve(process.cwd()), storagePath);
+
+  const file = await prisma.clinicalRecordFile.create({
+    data: {
+      clinicId: input.clinicId,
+      recordId: input.recordId,
+      kind: input.kind,
+      title: input.title.trim() || input.fileName,
+      fileName: input.fileName,
+      mimeType: input.mimeType,
+      sizeBytes: input.buffer.length,
+      storagePath: relative,
+    },
+  });
+
+  return mapFile(file);
+}
+
+export async function getClinicalRecordFile(
+  clinicId: string,
+  recordId: string,
+  fileId: string,
+  scopedProfessionalId?: string,
+) {
+  if (scopedProfessionalId) {
+    const owned = await prisma.clinicalRecord.findFirst({
+      where: {
+        id: recordId,
+        clinicId,
+        professionalId: scopedProfessionalId,
+        ...notDeleted,
+      },
+      select: { id: true },
+    });
+    if (!owned) throw new ClinicalRecordError("Registro não encontrado", 404);
+  }
+  const file = await prisma.clinicalRecordFile.findFirst({
+    where: { id: fileId, recordId, clinicId },
+  });
+  if (!file) throw new ClinicalRecordError("Arquivo não encontrado", 404);
+  return file;
+}
+
+export async function deleteClinicalRecordFile(
+  clinicId: string,
+  recordId: string,
+  fileId: string,
+  scopedProfessionalId?: string,
+) {
+  const record = await prisma.clinicalRecord.findFirst({
+    where: {
+      id: recordId,
+      clinicId,
+      ...notDeleted,
+      ...(scopedProfessionalId ? { professionalId: scopedProfessionalId } : {}),
+    },
+  });
+  if (!record) throw new ClinicalRecordError("Registro não encontrado", 404);
+  if (record.status === ClinicalRecordStatus.confirmed) {
+    throw new ClinicalRecordError(
+      "Arquivos de registro confirmado não podem ser excluídos",
+      422,
+    );
+  }
+
+  const file = await prisma.clinicalRecordFile.findFirst({
+    where: { id: fileId, recordId, clinicId },
+  });
+  if (!file) throw new ClinicalRecordError("Arquivo não encontrado", 404);
+
+  try {
+    await unlink(path.resolve(process.cwd(), file.storagePath));
+  } catch {
+    /* ignore */
+  }
+  await prisma.clinicalRecordFile.delete({ where: { id: file.id } });
+  return { ok: true };
 }

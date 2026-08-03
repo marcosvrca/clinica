@@ -1,3 +1,4 @@
+import { AppointmentStatus } from "@prisma/client";
 import { prisma } from "../infra/prisma.js";
 import { env } from "../config/env.js";
 import {
@@ -28,11 +29,16 @@ export async function listProfessionals(clinicId: string, serviceId?: string) {
     where: {
       clinicId,
       active: true,
-      ...(serviceId
-        ? { services: { some: { serviceId } } }
-        : {}),
+      ...(serviceId ? { services: { some: { serviceId } } } : {}),
     },
     orderBy: { name: "asc" },
+    select: {
+      id: true,
+      name: true,
+      specialty: true,
+      crp: true,
+      color: true,
+    },
   });
 }
 
@@ -67,6 +73,8 @@ export async function getAvailability(input: {
   const days = input.days ?? 14;
   const tz = env().TIMEZONE;
   const duration = service.durationMinutes;
+  const interval = env().SLOT_INTERVAL_MINUTES;
+  const step = Math.min(interval, duration);
   const now = new Date();
   const fromParts = partsInTimeZone(input.from > now ? input.from : now, tz);
   const rangeStart = zonedLocalToUtc(
@@ -79,15 +87,27 @@ export async function getAvailability(input: {
     tz,
   );
 
-  const busy = await prisma.appointment.findMany({
-    where: {
-      clinicId: input.clinicId,
-      status: { in: ["confirmed", "pending"] },
-      professionalId: { in: professionals.map((p) => p.id) },
-      startsAt: { lt: rangeEnd },
-      endsAt: { gt: rangeStart },
-    },
-  });
+  const proIds = professionals.map((p) => p.id);
+
+  const [busy, blocks] = await Promise.all([
+    prisma.appointment.findMany({
+      where: {
+        clinicId: input.clinicId,
+        status: { in: [AppointmentStatus.confirmed, AppointmentStatus.pending] },
+        professionalId: { in: proIds },
+        startsAt: { lt: rangeEnd },
+        endsAt: { gt: rangeStart },
+      },
+    }),
+    prisma.calendarBlock.findMany({
+      where: {
+        clinicId: input.clinicId,
+        professionalId: { in: proIds },
+        startsAt: { lt: rangeEnd },
+        endsAt: { gt: rangeStart },
+      },
+    }),
+  ]);
 
   const slots: Slot[] = [];
 
@@ -102,7 +122,11 @@ export async function getAvailability(input: {
     for (const pro of professionals) {
       const windows = pro.weeklyHours.filter((h) => h.weekday === weekday);
       for (const win of windows) {
-        for (let minute = win.startMinute; minute + duration <= win.endMinute; minute += duration) {
+        for (
+          let minute = win.startMinute;
+          minute + duration <= win.endMinute;
+          minute += step
+        ) {
           const hour = Math.floor(minute / 60);
           const min = minute % 60;
           const start = zonedLocalToUtc(
@@ -112,13 +136,21 @@ export async function getAvailability(input: {
           const end = new Date(start.getTime() + duration * 60_000);
           if (start <= now) continue;
 
-          const conflict = busy.some(
+          const conflictAppt = busy.some(
             (a) =>
               a.professionalId === pro.id &&
               a.startsAt < end &&
               a.endsAt > start,
           );
-          if (conflict) continue;
+          if (conflictAppt) continue;
+
+          const conflictBlock = blocks.some(
+            (b) =>
+              b.professionalId === pro.id &&
+              b.startsAt < end &&
+              b.endsAt > start,
+          );
+          if (conflictBlock) continue;
 
           slots.push({
             id: `${pro.id}_${start.toISOString()}`,

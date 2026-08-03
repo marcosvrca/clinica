@@ -1,304 +1,422 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import {
-  ChevronLeft,
-  ChevronRight,
-  Clock3,
-  Filter,
-  Lightbulb,
-  Plus,
-} from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import FullCalendar from "@fullcalendar/react";
+import dayGridPlugin from "@fullcalendar/daygrid";
+import timeGridPlugin from "@fullcalendar/timegrid";
+import interactionPlugin from "@fullcalendar/interaction";
+import listPlugin from "@fullcalendar/list";
+import type { EventInput } from "@fullcalendar/core";
+import { Filter, Plus } from "lucide-react";
 import { api } from "../api/client";
-import type { Appointment, Professional } from "../api/types";
+import type { Appointment, CalendarBlock, Professional } from "../api/types";
 import {
-  addDays,
-  dayKey,
+  formatShortDay,
   formatTime,
-  formatTimeRange,
-  formatWeekRange,
-  formatMonthYear,
-  startOfWeek,
+  localDateTimeToIso,
   toDateInputValue,
-  zonedParts,
+  toTimeInputValue,
 } from "../lib/dates";
-import { avatarColor, initials, serviceShort, serviceTone } from "../lib/ui";
+import { openSessionEvolution } from "../lib/session-record";
+import { SessionPrepPanel } from "../components/SessionPrepPanel";
 
-const HOURS = Array.from({ length: 14 }, (_, i) => i + 7); // 07–20
+const BLOCK_COLOR = "#94a3b8";
 
-type ViewMode = "dia" | "semana" | "mes";
+type DetailState = {
+  appointment: Appointment;
+  notes: string;
+  meetLink: string;
+  status: string;
+};
 
 export function AgendaPage() {
-  const [anchor, setAnchor] = useState(() => new Date());
-  const [view, setView] = useState<ViewMode>("semana");
-  const [items, setItems] = useState<Appointment[]>([]);
-  const [upcoming, setUpcoming] = useState<Appointment[]>([]);
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const deepLinkAppointmentId = searchParams.get("appointment");
+  const deepLinkHandled = useRef<string | null>(null);
+  const calendarRef = useRef<FullCalendar>(null);
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [blocks, setBlocks] = useState<CalendarBlock[]>([]);
   const [professionals, setProfessionals] = useState<Professional[]>([]);
   const [professionalId, setProfessionalId] = useState("");
+  const [range, setRange] = useState<{ from: Date; to: Date } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showFilters, setShowFilters] = useState(false);
+  const [ok, setOk] = useState<string | null>(null);
+  const [detail, setDetail] = useState<DetailState | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [openingRecord, setOpeningRecord] = useState(false);
+  const [showBlockForm, setShowBlockForm] = useState(false);
+  const [blockProId, setBlockProId] = useState("");
+  const [blockDate, setBlockDate] = useState(() => toDateInputValue(new Date()));
+  const [blockStartTime, setBlockStartTime] = useState("10:00");
+  const [blockEndTime, setBlockEndTime] = useState("12:00");
+  const [blockReason, setBlockReason] = useState("");
+  const [shared, setShared] = useState(true);
 
-  const weekStart = useMemo(() => startOfWeek(anchor), [anchor]);
-  const weekDays = useMemo(
-    () => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),
-    [weekStart],
-  );
-  const weekEnd = weekDays[6];
-
-  const range = useMemo(() => {
-    if (view === "dia") {
-      const d = new Date(anchor);
-      d.setHours(0, 0, 0, 0);
-      const end = new Date(d);
-      end.setHours(23, 59, 59, 999);
-      return { from: d, to: end, days: [d] };
+  const load = useCallback(async () => {
+    if (!range) return;
+    setLoading(true);
+    setError(null);
+    try {
+      /** Compartilhada = todos; individual exige profissional selecionado. */
+      const proFilter = shared
+        ? undefined
+        : professionalId || undefined;
+      if (!shared && !professionalId) {
+        setAppointments([]);
+        setBlocks([]);
+        const pros = await api.professionals();
+        setProfessionals(pros.items);
+        setBlockProId((c) => c || pros.items[0]?.id || "");
+        setLoading(false);
+        return;
+      }
+      const [appts, calBlocks, pros] = await Promise.all([
+        api.appointments({
+          from: range.from.toISOString(),
+          to: range.to.toISOString(),
+          professionalId: proFilter,
+          scope: "clinic",
+        }),
+        api.calendarBlocks({
+          from: range.from.toISOString(),
+          to: range.to.toISOString(),
+          professionalId: proFilter,
+        }),
+        api.professionals(),
+      ]);
+      setAppointments(appts.items);
+      setBlocks(calBlocks.items);
+      setProfessionals(pros.items);
+      setBlockProId((c) => c || pros.items[0]?.id || "");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao carregar agenda");
+    } finally {
+      setLoading(false);
     }
-    if (view === "mes") {
-      const start = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
-      const end = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0, 23, 59, 59, 999);
-      return { from: start, to: end, days: weekDays };
-    }
-    return {
-      from: weekStart,
-      to: addDays(weekEnd, 1),
-      days: weekDays,
-    };
-  }, [view, anchor, weekStart, weekEnd, weekDays]);
+  }, [range, professionalId, shared]);
 
   useEffect(() => {
+    void load();
+  }, [load]);
+
+  useEffect(() => {
+    if (!deepLinkAppointmentId || loading) return;
+    if (deepLinkHandled.current === deepLinkAppointmentId) return;
+
+    const openDetail = (appointment: Appointment) => {
+      deepLinkHandled.current = deepLinkAppointmentId;
+      setDetail({
+        appointment,
+        notes: appointment.notes ?? "",
+        meetLink: appointment.meetLink ?? "",
+        status: appointment.status,
+      });
+      const next = new URLSearchParams(searchParams);
+      next.delete("appointment");
+      setSearchParams(next, { replace: true });
+    };
+
+    const inRange = appointments.find((a) => a.id === deepLinkAppointmentId);
+    if (inRange) {
+      openDetail(inRange);
+      return;
+    }
+
+    let cancelled = false;
     void (async () => {
-      setLoading(true);
-      setError(null);
       try {
-        const [appts, pros, dash] = await Promise.all([
-          api.appointments({
-            from: range.from.toISOString(),
-            to: range.to.toISOString(),
-            status: "confirmed",
-            professionalId: professionalId || undefined,
-            scope: "clinic",
-          }),
-          api.professionals(),
-          api.dashboard(),
-        ]);
-        setItems(appts.items);
-        setProfessionals(pros.items);
-        setUpcoming(dash.upcoming);
+        const appointment = await api.appointment(deepLinkAppointmentId);
+        if (cancelled) return;
+        setAppointments((prev) =>
+          prev.some((a) => a.id === appointment.id) ? prev : [...prev, appointment],
+        );
+        calendarRef.current?.getApi().gotoDate(appointment.start);
+        openDetail(appointment);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Erro ao carregar agenda");
-      } finally {
-        setLoading(false);
+        if (cancelled) return;
+        deepLinkHandled.current = deepLinkAppointmentId;
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Agendamento do link não encontrado",
+        );
+        const next = new URLSearchParams(searchParams);
+        next.delete("appointment");
+        setSearchParams(next, { replace: true });
       }
     })();
-  }, [range.from, range.to, professionalId]);
 
-  const todayKey = dayKey(new Date().toISOString());
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    deepLinkAppointmentId,
+    appointments,
+    loading,
+    searchParams,
+    setSearchParams,
+  ]);
 
-  const nowLine = useMemo(() => {
-    const p = zonedParts(new Date());
-    const minutes = p.hour * 60 + p.minute;
-    const start = 7 * 60;
-    const end = 21 * 60;
-    if (minutes < start || minutes > end) return null;
-    return ((minutes - start) / (end - start)) * 100;
-  }, []);
+  const events: EventInput[] = useMemo(() => {
+    const sessionEvents: EventInput[] = appointments
+      .filter((a) => a.status !== "cancelled")
+      .map((a) => ({
+        id: a.id,
+        title: a.patient.name ?? a.patient.phone,
+        start: a.start,
+        end: a.end,
+        backgroundColor: a.professional.color ?? "#14b8a6",
+        borderColor: a.professional.color ?? "#14b8a6",
+        editable: true,
+        extendedProps: { kind: "appointment" as const, appointment: a },
+      }));
 
-  const monthMatrix = useMemo(() => {
-    const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
-    const start = startOfWeek(first);
-    return Array.from({ length: 42 }, (_, i) => addDays(start, i));
-  }, [anchor]);
+    const blockEvents: EventInput[] = blocks.map((b) => ({
+      id: `block:${b.id}`,
+      title: b.reason ? `Bloqueio · ${b.reason}` : "Bloqueio",
+      start: b.start,
+      end: b.end,
+      backgroundColor: BLOCK_COLOR,
+      borderColor: BLOCK_COLOR,
+      editable: false,
+      display: "block",
+      extendedProps: { kind: "block" as const, block: b },
+    }));
 
-  function shift(dir: -1 | 1) {
-    if (view === "dia") setAnchor((d) => addDays(d, dir));
-    else if (view === "mes")
-      setAnchor((d) => new Date(d.getFullYear(), d.getMonth() + dir, 1));
-    else setAnchor((d) => addDays(d, dir * 7));
+    return [...sessionEvents, ...blockEvents];
+  }, [appointments, blocks]);
+
+  async function onEventDrop(info: {
+    event: {
+      id: string;
+      start: Date | null;
+      end: Date | null;
+      extendedProps: { kind?: string };
+    };
+    revert: () => void;
+  }) {
+    const kind = info.event.extendedProps.kind;
+    if (kind !== "appointment" || !info.event.start) {
+      info.revert();
+      return;
+    }
+    setError(null);
+    try {
+      await api.moveAppointment(info.event.id, {
+        start: info.event.start.toISOString(),
+        end: info.event.end?.toISOString(),
+      });
+      setOk("Horário remarcado");
+      await load();
+    } catch (err) {
+      info.revert();
+      setError(err instanceof Error ? err.message : "Falha ao remarcar");
+    }
   }
 
-  const displayDays = view === "dia" ? [anchor] : weekDays;
+  async function onEventResize(info: {
+    event: {
+      id: string;
+      start: Date | null;
+      end: Date | null;
+      extendedProps: { kind?: string };
+    };
+    revert: () => void;
+  }) {
+    if (
+      info.event.extendedProps.kind !== "appointment" ||
+      !info.event.start ||
+      !info.event.end
+    ) {
+      info.revert();
+      return;
+    }
+    setError(null);
+    try {
+      await api.moveAppointment(info.event.id, {
+        start: info.event.start.toISOString(),
+        end: info.event.end.toISOString(),
+      });
+      setOk("Duração atualizada");
+      await load();
+    } catch (err) {
+      info.revert();
+      setError(err instanceof Error ? err.message : "Falha ao ajustar");
+    }
+  }
+
+  function onEventClick(info: {
+    event: {
+      extendedProps: {
+        kind?: string;
+        block?: CalendarBlock;
+        appointment?: Appointment;
+      };
+    };
+  }) {
+    const kind = info.event.extendedProps.kind;
+    if (kind === "block") {
+      const block = info.event.extendedProps.block;
+      if (!block) return;
+      if (window.confirm(`Remover bloqueio${block.reason ? ` (${block.reason})` : ""}?`)) {
+        void api
+          .deleteCalendarBlock(block.id)
+          .then(() => load())
+          .catch((err) =>
+            setError(err instanceof Error ? err.message : "Falha ao remover"),
+          );
+      }
+      return;
+    }
+    const appointment = info.event.extendedProps.appointment;
+    if (!appointment) return;
+    setDetail({
+      appointment,
+      notes: appointment.notes ?? "",
+      meetLink: appointment.meetLink ?? "",
+      status: appointment.status,
+    });
+  }
+
+  function onSelect(sel: { start: Date; end: Date | null }) {
+    setShowBlockForm(true);
+    setBlockDate(toDateInputValue(sel.start));
+    setBlockStartTime(toTimeInputValue(sel.start));
+    const end = sel.end ?? new Date(sel.start.getTime() + 60 * 60_000);
+    setBlockEndTime(toTimeInputValue(end));
+    if (!shared && professionalId) {
+      setBlockProId(professionalId);
+    }
+  }
+
+  async function saveDetail() {
+    if (!detail) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await api.updateAppointment(detail.appointment.id, {
+        notes: detail.notes,
+        meetLink: detail.meetLink || null,
+        status: detail.status,
+      });
+      setOk("Atendimento atualizado");
+      setDetail(null);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha ao salvar");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function submitBlock(e: React.FormEvent) {
+    e.preventDefault();
+    if (!blockProId) {
+      setError("Selecione o profissional do bloqueio");
+      return;
+    }
+    if (blockEndTime <= blockStartTime) {
+      setError("Horário final do bloqueio deve ser depois do início");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await api.createCalendarBlock({
+        professionalId: blockProId,
+        start: localDateTimeToIso(blockDate, blockStartTime),
+        end: localDateTimeToIso(blockDate, blockEndTime),
+        reason: blockReason.trim() || undefined,
+      });
+      setShowBlockForm(false);
+      setBlockReason("");
+      setOk("Bloqueio criado");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha ao bloquear");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
-    <div className="agenda-layout">
-      <section className="agenda-main card">
+    <div className="agenda-layout fc-agenda">
+      <section className="agenda-main card pad-sm">
         <div className="agenda-toolbar">
           <div className="agenda-nav">
-            <button type="button" className="btn ghost sm" onClick={() => setAnchor(new Date())}>
-              Hoje
-            </button>
-            <button type="button" className="icon-btn soft" onClick={() => shift(-1)}>
-              <ChevronLeft size={16} />
-            </button>
-            <button type="button" className="icon-btn soft" onClick={() => shift(1)}>
-              <ChevronRight size={16} />
-            </button>
-            <strong className="range-label">
-              {view === "mes"
-                ? formatMonthYear(anchor)
-                : view === "dia"
-                  ? anchor.toLocaleDateString("pt-BR", {
-                      weekday: "long",
-                      day: "numeric",
-                      month: "long",
-                    })
-                  : formatWeekRange(weekStart, weekEnd)}
-            </strong>
+            <strong className="range-label">Agenda da clínica</strong>
+            {loading ? <span className="muted">Atualizando…</span> : null}
           </div>
-
           <div className="view-switch">
-            {(["dia", "semana", "mes"] as ViewMode[]).map((v) => (
-              <button
-                key={v}
-                type="button"
-                className={view === v ? "on" : ""}
-                onClick={() => setView(v)}
-              >
-                {v === "dia" ? "Dia" : v === "semana" ? "Semana" : "Mês"}
-              </button>
-            ))}
+            <label className="chip" style={{ cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={shared}
+                onChange={(e) => {
+                  const next = e.target.checked;
+                  setShared(next);
+                  if (!next && !professionalId && professionals[0]) {
+                    setProfessionalId(professionals[0].id);
+                  }
+                  if (next) setProfessionalId("");
+                }}
+                style={{ marginRight: 6 }}
+              />
+              Compartilhada
+            </label>
           </div>
         </div>
 
-        {error && <p className="banner err">{error}</p>}
-        {loading && <p className="muted">Carregando agenda…</p>}
+        {error ? <p className="banner err">{error}</p> : null}
+        {ok ? (
+          <p className="banner ok" onAnimationEnd={() => setOk(null)}>
+            {ok}
+          </p>
+        ) : null}
+        {!shared && !professionalId ? (
+          <p className="banner err">
+            Selecione um profissional para a agenda individual, ou ative
+            “Compartilhada”.
+          </p>
+        ) : null}
 
-        {view !== "mes" ? (
-          <div className={`cal-week ${view === "dia" ? "one-day" : ""}`}>
-            <div className="cal-head">
-              <div />
-              <div className={`cal-days ${view === "dia" ? "one" : ""}`}>
-                {displayDays.map((d) => {
-                  const key = toDateInputValue(d);
-                  const isToday = key === todayKey;
-                  return (
-                    <div key={key} className={`cal-day-head ${isToday ? "today" : ""}`}>
-                      <span>
-                        {d
-                          .toLocaleDateString("pt-BR", { weekday: "short" })
-                          .replace(".", "")}
-                      </span>
-                      <strong className={isToday ? "today-num" : ""}>{d.getDate()}</strong>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="cal-body-row">
-              <div className="cal-times">
-                {HOURS.map((h) => (
-                  <div key={h}>{String(h).padStart(2, "0")}:00</div>
-                ))}
-              </div>
-
-              <div
-                className="cal-body"
-                style={{
-                  gridTemplateColumns: `repeat(${displayDays.length}, 1fr)`,
-                }}
-              >
-                {view === "semana" &&
-                  dayKey(new Date().toISOString()) >= dayKey(weekStart.toISOString()) &&
-                  dayKey(new Date().toISOString()) <= dayKey(weekEnd.toISOString()) &&
-                  nowLine != null && (
-                    <div className="now-line" style={{ top: `${nowLine}%` }}>
-                      <span>
-                        {String(zonedParts(new Date()).hour).padStart(2, "0")}:
-                        {String(zonedParts(new Date()).minute).padStart(2, "0")}
-                      </span>
-                    </div>
-                  )}
-                {view === "dia" &&
-                  toDateInputValue(anchor) === todayKey &&
-                  nowLine != null && (
-                    <div className="now-line" style={{ top: `${nowLine}%` }}>
-                      <span>
-                        {String(zonedParts(new Date()).hour).padStart(2, "0")}:
-                        {String(zonedParts(new Date()).minute).padStart(2, "0")}
-                      </span>
-                    </div>
-                  )}
-
-                {HOURS.map((h) =>
-                  displayDays.map((d) => (
-                    <div key={`${toDateInputValue(d)}-${h}`} className="cal-cell" />
-                  )),
-                )}
-
-                {items.map((a) => {
-                  const dayIdx = displayDays.findIndex(
-                    (d) => dayKey(d.toISOString()) === dayKey(a.start),
-                  );
-                  if (dayIdx < 0) return null;
-                  const p = zonedParts(new Date(a.start));
-                  const pe = zonedParts(new Date(a.end));
-                  const startMin = p.hour * 60 + p.minute;
-                  const endMin = pe.hour * 60 + pe.minute;
-                  const top = ((startMin - 7 * 60) / (14 * 60)) * 100;
-                  const height = Math.max(6, ((endMin - startMin) / (14 * 60)) * 100);
-                  if (top < -5 || top > 100) return null;
-                  const name = a.patient.name ?? a.patient.phone;
-                  const tone = serviceTone(a.service.name);
-                  return (
-                    <div
-                      key={a.id}
-                      className={`cal-event ${tone}`}
-                      style={{
-                        left: `calc(${(dayIdx / displayDays.length) * 100}% + 4px)`,
-                        width: `calc(${100 / displayDays.length}% - 8px)`,
-                        top: `${Math.max(0, top)}%`,
-                        height: `${height}%`,
-                      }}
-                    >
-                      <div className="cal-event-row">
-                        <div
-                          className="avatar xs"
-                          style={{ background: avatarColor(name) }}
-                        >
-                          {initials(a.patient.name, a.patient.phone)}
-                        </div>
-                        <strong>{name}</strong>
-                      </div>
-                      <span>{formatTimeRange(a.start, a.end)}</span>
-                      <em>{serviceShort(a.service.name)}</em>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="month-grid">
-            {["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"].map((d) => (
-              <div key={d} className="month-dow">
-                {d}
-              </div>
-            ))}
-            {monthMatrix.map((d) => {
-              const key = toDateInputValue(d);
-              const inMonth = d.getMonth() === anchor.getMonth();
-              const dayItems = items.filter((a) => dayKey(a.start) === key);
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  className={`month-cell ${inMonth ? "" : "out"} ${key === todayKey ? "today" : ""}`}
-                  onClick={() => {
-                    setAnchor(d);
-                    setView("dia");
-                  }}
-                >
-                  <span>{d.getDate()}</span>
-                  <div className="month-dots">
-                    {dayItems.slice(0, 3).map((a) => (
-                      <i key={a.id} className={serviceTone(a.service.name)} />
-                    ))}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        )}
+        <FullCalendar
+          ref={calendarRef}
+          plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin, listPlugin]}
+          initialView="timeGridWeek"
+          locale="pt-br"
+          headerToolbar={{
+            left: "prev,next today",
+            center: "title",
+            right: "dayGridMonth,timeGridWeek,timeGridDay,listWeek",
+          }}
+          buttonText={{
+            today: "Hoje",
+            month: "Mês",
+            week: "Semana",
+            day: "Dia",
+            list: "Lista",
+          }}
+          height="auto"
+          slotMinTime="07:00:00"
+          slotMaxTime="21:00:00"
+          allDaySlot={false}
+          nowIndicator
+          editable
+          droppable={false}
+          selectable
+          selectMirror
+          eventDurationEditable
+          events={events}
+          datesSet={(arg) => {
+            setRange({ from: arg.start, to: arg.end });
+          }}
+          eventDrop={(info) => void onEventDrop(info)}
+          eventResize={(info) => void onEventResize(info)}
+          eventClick={onEventClick}
+          select={onSelect}
+        />
       </section>
 
       <aside className="agenda-side">
@@ -306,24 +424,53 @@ export function AgendaPage() {
           <button
             type="button"
             className="btn ghost"
-            onClick={() => setShowFilters((v) => !v)}
+            onClick={() => setShowBlockForm((v) => !v)}
           >
-            <Filter size={15} /> Filtros
+            <Filter size={15} /> Bloquear
           </button>
           <Link to="/agendar" className="btn teal">
-            <Plus size={16} /> Novo atendimento
+            <Plus size={16} /> Agendar
           </Link>
         </div>
 
-        {showFilters && (
-          <div className="card pad-sm filter-box">
+        <div className="card pad-sm filter-box">
+          <label>
+            Profissional
+            <select
+              value={professionalId}
+              onChange={(e) => {
+                const id = e.target.value;
+                setProfessionalId(id);
+                setShared(!id);
+                if (id) setBlockProId(id);
+              }}
+            >
+              <option value="">Todos (agenda compartilhada)</option>
+              {professionals.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="muted" style={{ margin: "0.5rem 0 0", fontSize: "0.8rem" }}>
+            Cores por profissional · arraste para remarcar · selecione faixa para
+            bloquear
+          </p>
+        </div>
+
+        {showBlockForm ? (
+          <form className="card pad-sm filter-box" onSubmit={(e) => void submitBlock(e)}>
+            <strong style={{ display: "block", marginBottom: "0.5rem" }}>
+              Bloqueio de horário
+            </strong>
             <label>
-              Terapeuta
+              Profissional
               <select
-                value={professionalId}
-                onChange={(e) => setProfessionalId(e.target.value)}
+                value={blockProId}
+                onChange={(e) => setBlockProId(e.target.value)}
+                required
               >
-                <option value="">Todos</option>
                 {professionals.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
@@ -331,137 +478,232 @@ export function AgendaPage() {
                 ))}
               </select>
             </label>
-          </div>
-        )}
-
-        <MiniCalendar
-          anchor={anchor}
-          onSelect={(d) => {
-            setAnchor(d);
-            setView("dia");
-          }}
-          onMonth={(dir) =>
-            setAnchor((d) => new Date(d.getFullYear(), d.getMonth() + dir, 1))
-          }
-        />
-
-        <div className="card pad-sm">
-          <div className="card-head tight">
-            <h3>Próximos atendimentos</h3>
-          </div>
-          <ul className="upcoming-mini">
-            {upcoming.length === 0 && (
-              <li className="muted">Nenhum horário futuro.</li>
-            )}
-            {upcoming.slice(0, 4).map((a) => {
-              const name = a.patient.name ?? a.patient.phone;
-              const isToday = dayKey(a.start) === todayKey;
-              return (
-                <li key={a.id}>
-                  <div className="avatar sm" style={{ background: avatarColor(name) }}>
-                    {initials(a.patient.name, a.patient.phone)}
-                  </div>
-                  <div className="up-body">
-                    <strong>{name}</strong>
-                    <span>{serviceShort(a.service.name)}</span>
-                    <em>
-                      {isToday ? `Hoje, ${formatTime(a.start)}` : a.startLabel}
-                    </em>
-                  </div>
-                  <span className="status st-progress">Confirmado</span>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
+            <label>
+              Data
+              <input
+                type="date"
+                value={blockDate}
+                onChange={(e) => setBlockDate(e.target.value)}
+                required
+              />
+            </label>
+            <div className="form-grid two" style={{ marginBottom: 0 }}>
+              <label>
+                Início
+                <input
+                  type="time"
+                  value={blockStartTime}
+                  onChange={(e) => setBlockStartTime(e.target.value)}
+                  required
+                />
+              </label>
+              <label>
+                Fim
+                <input
+                  type="time"
+                  value={blockEndTime}
+                  onChange={(e) => setBlockEndTime(e.target.value)}
+                  required
+                />
+              </label>
+            </div>
+            <label>
+              Motivo
+              <input
+                value={blockReason}
+                onChange={(e) => setBlockReason(e.target.value)}
+                placeholder="Supervisão, folga…"
+              />
+            </label>
+            <button type="submit" className="btn teal block" disabled={saving}>
+              Salvar bloqueio
+            </button>
+          </form>
+        ) : null}
 
         <div className="card pad-sm">
           <h3 className="card-title sm">Legenda</h3>
           <ul className="legend">
+            {professionals.map((p) => (
+              <li key={p.id}>
+                <i style={{ background: p.color ?? "#14b8a6" }} /> {p.name}
+              </li>
+            ))}
             <li>
-              <i className="tone-tcc" /> TCC / Sessão
-            </li>
-            <li>
-              <i className="tone-psi" /> Avaliação / Psicanálise
-            </li>
-            <li>
-              <i className="tone-rel" /> Relacionamentos
-            </li>
-            <li>
-              <i className="tone-auto" /> Autoconhecimento
-            </li>
-            <li>
-              <i className="tone-other" /> Outros
+              <i style={{ background: BLOCK_COLOR }} /> Bloqueio
             </li>
           </ul>
         </div>
 
-        <div className="tip-card">
-          <Lightbulb size={18} />
-          <div>
-            <strong>Dica rápida</strong>
-            <p>
-              Depois da sessão, abra{" "}
-              <Link to="/prontuarios">Prontuários</Link> para revisar o rascunho
-              antes de confirmar no registro.
-            </p>
-          </div>
-          <Clock3 size={16} className="tip-clock" />
+        <div className="card pad-sm">
+          <h3 className="card-title sm">Integrações</h3>
+          <p className="muted" style={{ fontSize: "0.82rem", margin: "0 0 0.6rem" }}>
+            Google Calendar e Outlook: configure em Configurações.
+          </p>
+          <Link to="/configuracoes" className="link-btn">
+            Abrir integrações
+          </Link>
         </div>
       </aside>
-    </div>
-  );
-}
 
-function MiniCalendar({
-  anchor,
-  onSelect,
-  onMonth,
-}: {
-  anchor: Date;
-  onSelect: (d: Date) => void;
-  onMonth: (dir: -1 | 1) => void;
-}) {
-  const monthStart = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
-  const gridStart = startOfWeek(monthStart);
-  const cells = Array.from({ length: 42 }, (_, i) => addDays(gridStart, i));
-  const today = toDateInputValue(new Date());
-  const selected = toDateInputValue(anchor);
+      {detail ? (
+        <div className="modal-backdrop" role="presentation" onClick={() => setDetail(null)}>
+          <div
+            className="modal-card wide"
+            role="dialog"
+            aria-modal
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="card-head">
+              <h2 className="card-title" style={{ margin: 0 }}>
+                Detalhe do atendimento
+              </h2>
+              <button type="button" className="btn ghost sm" onClick={() => setDetail(null)}>
+                Fechar
+              </button>
+            </div>
 
-  return (
-    <div className="card pad-sm mini-cal">
-      <div className="mini-cal-head">
-        <strong>{formatMonthYear(anchor)}</strong>
-        <div>
-          <button type="button" className="icon-btn soft" onClick={() => onMonth(-1)}>
-            <ChevronLeft size={14} />
-          </button>
-          <button type="button" className="icon-btn soft" onClick={() => onMonth(1)}>
-            <ChevronRight size={14} />
-          </button>
+            <div className="detail-grid">
+              <label>
+                Paciente
+                <input
+                  readOnly
+                  value={
+                    detail.appointment.patient.name ??
+                    detail.appointment.patient.phone
+                  }
+                />
+              </label>
+              <label>
+                Telefone
+                <input readOnly value={detail.appointment.patient.phone} />
+              </label>
+              <label>
+                Data
+                <input readOnly value={formatShortDay(detail.appointment.start)} />
+              </label>
+              <label>
+                Hora
+                <input
+                  readOnly
+                  value={`${formatTime(detail.appointment.start)} – ${formatTime(detail.appointment.end)}`}
+                />
+              </label>
+              <label>
+                Profissional
+                <input readOnly value={detail.appointment.professional.name} />
+              </label>
+              <label>
+                Serviço
+                <input readOnly value={detail.appointment.service.name} />
+              </label>
+              <label className="span-2">
+                Status
+                <select
+                  value={detail.status}
+                  onChange={(e) =>
+                    setDetail((d) => (d ? { ...d, status: e.target.value } : d))
+                  }
+                >
+                  <option value="confirmed">Confirmado</option>
+                  <option value="pending">Pendente</option>
+                  <option value="cancelled">Cancelado</option>
+                  <option value="no_show">Falta</option>
+                </select>
+              </label>
+              <label className="span-2">
+                Link Meet
+                <input
+                  type="url"
+                  placeholder="https://meet.google.com/..."
+                  value={detail.meetLink}
+                  onChange={(e) =>
+                    setDetail((d) => (d ? { ...d, meetLink: e.target.value } : d))
+                  }
+                />
+              </label>
+              <label className="span-2">
+                Observações
+                <textarea
+                  rows={3}
+                  value={detail.notes}
+                  onChange={(e) =>
+                    setDetail((d) => (d ? { ...d, notes: e.target.value } : d))
+                  }
+                />
+              </label>
+            </div>
+
+            {detail.appointment.recurrenceRule ? (
+              <p className="muted" style={{ fontSize: "0.8rem" }}>
+                Série recorrente ({detail.appointment.recurrenceRule})
+              </p>
+            ) : null}
+
+            <SessionPrepPanel
+              patientId={detail.appointment.patient.id}
+              appointmentId={detail.appointment.id}
+              compact
+            />
+
+            <div className="row-actions">
+              {detail.meetLink ? (
+                <a
+                  className="btn ghost"
+                  href={detail.meetLink}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Abrir Meet
+                </a>
+              ) : null}
+              {detail.appointment.status !== "cancelled" ? (
+                <button
+                  type="button"
+                  className="btn ghost"
+                  disabled={openingRecord}
+                  onClick={() => {
+                    void (async () => {
+                      setOpeningRecord(true);
+                      setError(null);
+                      try {
+                        await openSessionEvolution(
+                          detail.appointment,
+                          navigate,
+                        );
+                      } catch (err) {
+                        setError(
+                          err instanceof Error
+                            ? err.message
+                            : "Não foi possível abrir o registro",
+                        );
+                      } finally {
+                        setOpeningRecord(false);
+                      }
+                    })();
+                  }}
+                >
+                  {openingRecord ? "Abrindo…" : "Registrar evolução"}
+                </button>
+              ) : null}
+              <Link
+                className="btn ghost"
+                to={`/prontuarios?patientId=${detail.appointment.patient.id}`}
+              >
+                Prontuário
+              </Link>
+              <button
+                type="button"
+                className="btn teal"
+                disabled={saving}
+                onClick={() => void saveDetail()}
+              >
+                {saving ? "Salvando…" : "Salvar"}
+              </button>
+            </div>
+          </div>
         </div>
-      </div>
-      <div className="mini-cal-grid">
-        {["S", "T", "Q", "Q", "S", "S", "D"].map((d, i) => (
-          <span key={`${d}-${i}`} className="mini-dow">
-            {d}
-          </span>
-        ))}
-        {cells.map((d) => {
-          const key = toDateInputValue(d);
-          const inMonth = d.getMonth() === anchor.getMonth();
-          return (
-            <button
-              key={key}
-              type="button"
-              className={`mini-day ${inMonth ? "" : "out"} ${key === today ? "today" : ""} ${key === selected ? "selected" : ""}`}
-              onClick={() => onSelect(d)}
-            >
-              {d.getDate()}
-            </button>
-          );
-        })}
-      </div>
+      ) : null}
     </div>
   );
 }

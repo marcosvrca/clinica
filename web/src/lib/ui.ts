@@ -1,7 +1,7 @@
 export function avatarColor(seed: string) {
   let h = 0;
   for (const c of seed) h = (h + c.charCodeAt(0) * 17) % 360;
-  return `hsl(${h} 52% 88%)`;
+  return `hsl(${h} 18% 92%)`;
 }
 
 export function initials(name: string | null | undefined, fallback = "—") {
@@ -17,7 +17,7 @@ export function initials(name: string | null | undefined, fallback = "—") {
   return fallback.slice(-2).toUpperCase();
 }
 
-/** Pastel color class by service/specialty label */
+/** Soft calendar tone by service/specialty label */
 export function serviceTone(label: string): string {
   const t = label.toLowerCase();
   if (/tcc|cognitivo|sessão|sessao|individual/.test(t)) return "tone-tcc";

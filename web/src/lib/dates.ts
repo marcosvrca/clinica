@@ -88,6 +88,19 @@ function localToUtcIso(
   return new Date(utcGuess.getTime() + (desired - actual)).toISOString();
 }
 
+/** `HH:mm` no fuso da clínica a partir de um Date. */
+export function toTimeInputValue(d: Date): string {
+  const p = parts(d);
+  return `${String(p.hour).padStart(2, "0")}:${String(p.minute).padStart(2, "0")}`;
+}
+
+/** Converte `YYYY-MM-DD` + `HH:mm` (fuso da clínica) para ISO UTC. */
+export function localDateTimeToIso(dateStr: string, timeStr: string): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const [hh, mm] = timeStr.split(":").map(Number);
+  return localToUtcIso(y, m, d, hh, mm);
+}
+
 export function formatPrice(cents: number | null): string {
   if (cents == null) return "—";
   return (cents / 100).toLocaleString("pt-BR", {
