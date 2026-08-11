@@ -74,3 +74,15 @@ Configure `CLINIC_REMINDERS_ENABLED=true` e, se necessário, `CLINIC_REMINDER_TE
 - Postgres: `pg_dump` diário + retenção ≥ 14 dias
 - Volume `uploads/`
 - Guarde `CLINICAL_ENCRYPTION_KEY` fora do servidor (sem ela os prontuários não abrem)
+
+Scripts no repositório:
+
+```bash
+# Linux / macOS / Railway shell (com pg_dump)
+./scripts/backup-db.sh
+
+# Windows
+.\scripts\backup-db.ps1
+```
+
+Saída em `backups/clinica-*.sql(.gz)`. Agende no cron / Task Scheduler / job do host.

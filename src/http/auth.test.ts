@@ -87,7 +87,7 @@ describe("production guards", () => {
     ASAAS_BASE_URL: "https://api.asaas.com/api/v3",
     PAGARME_SECRET_KEY: "",
     PAYMENTS_ALLOW_SANDBOX: "auto",
-    PAYMENTS_WEBHOOK_SECRET: "",
+    PAYMENTS_WEBHOOK_SECRET: "prod-webhook-secret-strong",
     COMPLIMENTARY_SIGNUP_EMAILS: "",
     SUBSCRIPTION_PLAN_CODE: "pro_monthly",
     SUBSCRIPTION_PLAN_NAME: "Plano",
@@ -112,6 +112,15 @@ describe("production guards", () => {
     ).toThrow(/CLINIC_ID|CLINIC_API_KEY/);
   });
 
+  it("rejeita webhook secret vazio em production", () => {
+    expect(() =>
+      assertProductionReady({
+        ...base,
+        PAYMENTS_WEBHOOK_SECRET: "",
+      }),
+    ).toThrow(/PAYMENTS_WEBHOOK_SECRET/);
+  });
+
   it("ignora checagens fora de production", () => {
     expect(() =>
       assertProductionReady({
@@ -119,6 +128,7 @@ describe("production guards", () => {
         NODE_ENV: "development",
         CLINIC_ID: "",
         CLINIC_API_KEY: "clinic-api-key-change-me-16",
+        PAYMENTS_WEBHOOK_SECRET: "",
       }),
     ).not.toThrow();
   });

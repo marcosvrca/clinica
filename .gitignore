@@ -9,4 +9,4 @@ web/.env.local
 coverage/
 .DS_Store
 
-uploads/
+backups/

@@ -52,6 +52,12 @@ export function assertProductionReady(config: Env): void {
     );
   }
 
+  if (!config.PAYMENTS_WEBHOOK_SECRET.trim()) {
+    problems.push(
+      "PAYMENTS_WEBHOOK_SECRET é obrigatório em production (webhooks Mercado Pago / pagamentos)",
+    );
+  }
+
   if (problems.length > 0) {
     throw new Error(
       `Configuração insegura para production:\n- ${problems.join("\n- ")}`,

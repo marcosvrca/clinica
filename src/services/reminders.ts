@@ -380,23 +380,50 @@ export async function listReminders(input: {
   return items.map(mapReminder);
 }
 
-/** Fila para o bot WhatsApp: lembretes vencidos ainda pendentes de WhatsApp. */
+/** Fila para o bot WhatsApp: claim atômico dos lembretes vencidos. */
 export async function listDueReminders(clinicId: string, limit = 20) {
   if (!env().REMINDER_WHATSAPP_ENABLED) return [];
 
-  const items = await prisma.reminder.findMany({
+  const now = new Date();
+  const staleBefore = new Date(now.getTime() - 10 * 60_000);
+
+  const candidates = await prisma.reminder.findMany({
     where: {
       clinicId,
       status: ReminderStatus.pending,
-      scheduledAt: { lte: new Date() },
+      scheduledAt: { lte: now },
       whatsappSentAt: null,
+      OR: [{ claimedAt: null }, { claimedAt: { lt: staleBefore } }],
       appointment: {
         status: { in: ["confirmed", "pending"] },
       },
     },
-    include: reminderInclude,
     orderBy: { scheduledAt: "asc" },
     take: limit,
+    select: { id: true },
+  });
+
+  const claimedIds: string[] = [];
+  for (const row of candidates) {
+    const updated = await prisma.reminder.updateMany({
+      where: {
+        id: row.id,
+        clinicId,
+        status: ReminderStatus.pending,
+        whatsappSentAt: null,
+        OR: [{ claimedAt: null }, { claimedAt: { lt: staleBefore } }],
+      },
+      data: { claimedAt: now },
+    });
+    if (updated.count === 1) claimedIds.push(row.id);
+  }
+
+  if (claimedIds.length === 0) return [];
+
+  const items = await prisma.reminder.findMany({
+    where: { clinicId, id: { in: claimedIds } },
+    include: reminderInclude,
+    orderBy: { scheduledAt: "asc" },
   });
   return items.map(mapReminder);
 }
@@ -509,6 +536,7 @@ export async function markReminderSent(clinicId: string, id: string) {
       status: ReminderStatus.sent,
       sentAt: new Date(),
       whatsappSentAt: new Date(),
+      claimedAt: null,
       error: null,
     },
     include: reminderInclude,
@@ -529,6 +557,7 @@ export async function markReminderFailed(
     where: { id: current.id },
     data: {
       status: ReminderStatus.failed,
+      claimedAt: null,
       error: error.slice(0, 500),
     },
     include: reminderInclude,
