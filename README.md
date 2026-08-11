@@ -20,10 +20,11 @@ Precisa do Postgres (`localhost:5433`).
 
 ```powershell
 cp .env.example .env
-# ajuste CLINIC_API_KEY, JWT_SECRET, CLINICAL_ENCRYPTION_KEY, RESEND_*, etc.
+# ajuste CLINIC_API_KEY, JWT_SECRET, CLINICAL_ENCRYPTION_KEY, CLINIC_ID, RESEND_*, etc.
 npm install
 npm install --prefix web
 npx prisma migrate deploy
+# se o banco já existia via db push: npx prisma migrate resolve --applied 20260803121500_init
 npm run db:seed
 npm run dev
 
@@ -160,3 +161,8 @@ O bot deve:
 3. `POST /v1/reminders/:id/sent` ou `/failed`
 
 Lembretes são criados automaticamente ao marcar/remarcar (padrão: 24h antes).
+O bot envia via worker `clinic-reminder.worker` (`CLINIC_REMINDERS_ENABLED`).
+
+## Produção
+
+Veja [DEPLOY.md](./DEPLOY.md): secrets, `CLINIC_ID`, migrations, Docker, backup e escopo da API key.

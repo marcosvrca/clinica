@@ -3,6 +3,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import {
   AppointmentStatus,
+  ClinicalAuditAction,
   ClinicalFileKind,
   ClinicalRecordStatus,
 } from "@prisma/client";
@@ -12,6 +13,10 @@ import {
   encryptClinical,
   encryptClinicalRequired,
 } from "../lib/clinical-crypto.js";
+import {
+  type ClinicalAuditActor,
+  writeClinicalAudit,
+} from "./clinical-audit.js";
 
 export class ClinicalRecordError extends Error {
   constructor(
@@ -282,6 +287,7 @@ export async function getClinicalRecord(
   clinicId: string,
   id: string,
   professionalId?: string,
+  actor?: ClinicalAuditActor,
 ) {
   const record = await prisma.clinicalRecord.findFirst({
     where: {
@@ -293,6 +299,15 @@ export async function getClinicalRecord(
     include: recordInclude,
   });
   if (!record) throw new ClinicalRecordError("Registro não encontrado", 404);
+  if (actor) {
+    await writeClinicalAudit({
+      clinicId,
+      recordId: record.id,
+      patientId: record.patientId,
+      action: ClinicalAuditAction.viewed,
+      actor,
+    });
+  }
   return mapClinicalRecord(record);
 }
 
@@ -302,6 +317,7 @@ export async function createClinicalRecord(input: {
   professionalId?: string;
   appointmentId?: string;
   scopedProfessionalId?: string;
+  actor?: ClinicalAuditActor;
 } & ClinicalWriteFields) {
   const forcedPro = input.scopedProfessionalId;
   if (forcedPro && input.professionalId && input.professionalId !== forcedPro) {
@@ -368,6 +384,14 @@ export async function createClinicalRecord(input: {
       },
       include: recordInclude,
     });
+    await writeClinicalAudit({
+      clinicId: input.clinicId,
+      recordId: created.id,
+      patientId: created.patientId,
+      action: ClinicalAuditAction.created,
+      actor: input.actor,
+      meta: { appointmentId: appointment.id },
+    });
     return mapClinicalRecord(created);
   }
 
@@ -414,6 +438,13 @@ export async function createClinicalRecord(input: {
     },
     include: recordInclude,
   });
+  await writeClinicalAudit({
+    clinicId: input.clinicId,
+    recordId: created.id,
+    patientId: created.patientId,
+    action: ClinicalAuditAction.created,
+    actor: input.actor,
+  });
   return mapClinicalRecord(created);
 }
 
@@ -423,6 +454,7 @@ export async function updateClinicalRecord(input: {
   professionalId?: string;
   /** Quando definido, só permite editar registros deste profissional. */
   scopedProfessionalId?: string;
+  actor?: ClinicalAuditActor;
 } & ClinicalWriteFields) {
   const current = await prisma.clinicalRecord.findFirst({
     where: {
@@ -465,6 +497,31 @@ export async function updateClinicalRecord(input: {
     },
     include: recordInclude,
   });
+  await writeClinicalAudit({
+    clinicId: input.clinicId,
+    recordId: updated.id,
+    patientId: updated.patientId,
+    action: ClinicalAuditAction.updated,
+    actor: input.actor,
+    meta: {
+      fields: (
+        [
+          "sessionNotes",
+          "draftContent",
+          "objectives",
+          "hypotheses",
+          "recurringThemes",
+          "nextInterventions",
+          "importantPoints",
+          "audioNotes",
+          "diagnosisCid",
+          "diagnosisDsm",
+          "recordingConsent",
+          "professionalId",
+        ] as const
+      ).filter((key) => input[key] !== undefined),
+    },
+  });
   return mapClinicalRecord(updated);
 }
 
@@ -472,6 +529,7 @@ export async function confirmClinicalRecord(
   clinicId: string,
   id: string,
   scopedProfessionalId?: string,
+  actor?: ClinicalAuditActor,
 ) {
   const current = await prisma.clinicalRecord.findFirst({
     where: {
@@ -500,6 +558,13 @@ export async function confirmClinicalRecord(
     },
     include: recordInclude,
   });
+  await writeClinicalAudit({
+    clinicId,
+    recordId: updated.id,
+    patientId: updated.patientId,
+    action: ClinicalAuditAction.confirmed,
+    actor,
+  });
   return mapClinicalRecord(updated);
 }
 
@@ -507,6 +572,7 @@ export async function softDeleteClinicalRecord(
   clinicId: string,
   id: string,
   scopedProfessionalId?: string,
+  actor?: ClinicalAuditActor,
 ) {
   const current = await prisma.clinicalRecord.findFirst({
     where: {
@@ -527,6 +593,13 @@ export async function softDeleteClinicalRecord(
     where: { id: current.id },
     data: { deletedAt: new Date() },
   });
+  await writeClinicalAudit({
+    clinicId,
+    recordId: current.id,
+    patientId: current.patientId,
+    action: ClinicalAuditAction.deleted,
+    actor,
+  });
   return { ok: true };
 }
 
@@ -539,6 +612,7 @@ export async function saveClinicalRecordFile(input: {
   mimeType: string;
   buffer: Buffer;
   scopedProfessionalId?: string;
+  actor?: ClinicalAuditActor;
 }) {
   const record = await prisma.clinicalRecord.findFirst({
     where: {
@@ -579,6 +653,15 @@ export async function saveClinicalRecordFile(input: {
     },
   });
 
+  await writeClinicalAudit({
+    clinicId: input.clinicId,
+    recordId: input.recordId,
+    patientId: record.patientId,
+    action: ClinicalAuditAction.file_added,
+    actor: input.actor,
+    meta: { fileId: file.id, kind: file.kind, fileName: file.fileName },
+  });
+
   return mapFile(file);
 }
 
@@ -612,6 +695,7 @@ export async function deleteClinicalRecordFile(
   recordId: string,
   fileId: string,
   scopedProfessionalId?: string,
+  actor?: ClinicalAuditActor,
 ) {
   const record = await prisma.clinicalRecord.findFirst({
     where: {
@@ -640,5 +724,13 @@ export async function deleteClinicalRecordFile(
     /* ignore */
   }
   await prisma.clinicalRecordFile.delete({ where: { id: file.id } });
+  await writeClinicalAudit({
+    clinicId,
+    recordId,
+    patientId: record.patientId,
+    action: ClinicalAuditAction.file_removed,
+    actor,
+    meta: { fileId: file.id, fileName: file.fileName },
+  });
   return { ok: true };
 }

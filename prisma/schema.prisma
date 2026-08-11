@@ -117,6 +117,7 @@ model Clinic {
   sessionPackages SessionPackage[]
   expenses        Expense[]
   softwareSubscription SoftwareSubscription?
+  clinicalAuditLogs ClinicalAuditLog[]
 }
 
 model Professional {
@@ -430,6 +431,7 @@ model ClinicalRecord {
   professional Professional         @relation(fields: [professionalId], references: [id], onDelete: Restrict)
   appointment  Appointment?         @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
   files        ClinicalRecordFile[]
+  auditLogs    ClinicalAuditLog[]
 
   @@index([clinicId, status, updatedAt])
   @@index([patientId, status, confirmedAt])
@@ -454,6 +456,39 @@ model ClinicalRecordFile {
 
   @@index([recordId, kind, createdAt])
   @@index([clinicId])
+}
+
+enum ClinicalAuditAction {
+  created
+  updated
+  confirmed
+  deleted
+  viewed
+  file_added
+  file_removed
+}
+
+/// Auditoria clínica: quem fez o quê — sem dump do prontuário.
+model ClinicalAuditLog {
+  id             String              @id @default(cuid())
+  clinicId       String
+  recordId       String
+  patientId      String
+  professionalId String?
+  staffUserId    String?
+  action         ClinicalAuditAction
+  /// Metadados (campos tocados, ids de arquivo) — nunca conteúdo clínico integral
+  meta           Json?
+  ip             String?
+  createdAt      DateTime            @default(now())
+
+  clinic Clinic         @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  record ClinicalRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+
+  @@index([clinicId, createdAt])
+  @@index([recordId, createdAt])
+  @@index([patientId, createdAt])
+  @@index([clinicId, action, createdAt])
 }
 
 /// Recebimento operacional (sessão avulsa ou pacote) — pago / pendente / cancelado.

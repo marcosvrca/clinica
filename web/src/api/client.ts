@@ -7,6 +7,7 @@ import type {
   ClinicalRecordsResponse,
   ClinicalRecordWrite,
   ClinicalFileKind,
+  ClinicalAuditLog,
   DashboardData,
   EvolutionDraftResponse,
   PatientsResponse,
@@ -355,6 +356,10 @@ export const api = {
     ),
   clinicalRecord: (id: string) =>
     request<ClinicalRecord>(`/v1/clinical-records/${id}`),
+  clinicalRecordAudit: (id: string) =>
+    request<{ items: ClinicalAuditLog[] }>(
+      `/v1/clinical-records/${id}/audit`,
+    ),
   createClinicalRecord: (body: {
     patientId?: string;
     professionalId?: string;

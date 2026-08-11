@@ -65,6 +65,33 @@ export function isPublicPath(url: string): boolean {
   return false;
 }
 
+/**
+ * Rotas permitidas para `x-api-key` (bot / integrações).
+ * Prontuário, financeiro, pacientes e dashboard exigem JWT de staff.
+ */
+export function isServiceAllowedPath(url: string, method = "GET"): boolean {
+  const path = url.split("?")[0] ?? url;
+  const m = method.toUpperCase();
+
+  if (path === "/v1/clinic" && m === "GET") return true;
+  if (path === "/v1/services" && m === "GET") return true;
+  if (path === "/v1/professionals" && m === "GET") return true;
+  if (path === "/v1/availability" && m === "GET") return true;
+  if (path === "/v1/appointments" && (m === "GET" || m === "POST")) return true;
+  if (/^\/v1\/appointments\/[^/]+$/.test(path) && m === "GET") return true;
+  if (
+    /^\/v1\/appointments\/[^/]+\/(cancel|reschedule)$/.test(path) &&
+    m === "POST"
+  ) {
+    return true;
+  }
+  if (path === "/v1/reminders/due" && m === "GET") return true;
+  if (/^\/v1\/reminders\/[^/]+\/(sent|failed)$/.test(path) && m === "POST") {
+    return true;
+  }
+  return false;
+}
+
 export async function authenticateRequest(
   request: FastifyRequest,
   reply: FastifyReply,
@@ -75,7 +102,20 @@ export async function authenticateRequest(
   if (apiKeyHeader) {
     const provided = String(apiKeyHeader);
     if (safeEqualString(provided, env().CLINIC_API_KEY)) {
+      if (!isServiceAllowedPath(request.url, request.method)) {
+        await reply.code(403).send({
+          error:
+            "API key do bot não tem acesso a esta rota. Use login JWT no painel.",
+        });
+        return;
+      }
       const clinicId = env().CLINIC_ID.trim() || null;
+      if (env().NODE_ENV === "production" && !clinicId) {
+        await reply.code(500).send({
+          error: "CLINIC_ID não configurado para a API key",
+        });
+        return;
+      }
       request.auth = { kind: "service", clinicId };
       return;
     }
@@ -114,7 +154,17 @@ export async function authenticateRequest(
 }
 
 export async function registerAuthRoutes(app: FastifyInstance) {
-  app.post("/v1/auth/login", async (request, reply) => {
+  app.post(
+    "/v1/auth/login",
+    {
+      config: {
+        rateLimit: {
+          max: 10,
+          timeWindow: "1 minute",
+        },
+      },
+    },
+    async (request, reply) => {
     const body = z
       .object({
         email: z.string().email(),
@@ -233,6 +283,8 @@ export async function resolveClinicId(request: FastifyRequest): Promise<string |
     });
     return clinic?.id ?? null;
   }
+  // Em production CLINIC_ID é obrigatório — sem fallback ambíguo.
+  if (env().NODE_ENV === "production") return null;
   const clinic = await prisma.clinic.findFirst({
     where: { active: true },
     orderBy: { createdAt: "asc" },
@@ -242,7 +294,7 @@ export async function resolveClinicId(request: FastifyRequest): Promise<string |
 
 /**
  * Escopo clínico para role=professional.
- * - `undefined` = admin/serviço (sem filtro forçado)
+ * - `undefined` = admin (sem filtro forçado)
  * - `string` = só registros deste profissional
  * - `null` = já respondeu 403
  */
@@ -250,7 +302,12 @@ export async function resolveClinicalProfessionalScope(
   request: FastifyRequest,
   reply: FastifyReply,
 ): Promise<string | null | undefined> {
-  if (request.auth?.kind !== "staff") return undefined;
+  if (request.auth?.kind !== "staff") {
+    await reply.code(403).send({
+      error: "Acesso clínico exige login no painel",
+    });
+    return null;
+  }
   if (request.auth.role === "admin") return undefined;
   if (!request.auth.professionalId) {
     await reply.code(403).send({
@@ -259,4 +316,16 @@ export async function resolveClinicalProfessionalScope(
     return null;
   }
   return request.auth.professionalId;
+}
+
+/** Exige JWT de staff (painel). */
+export async function requireStaff(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<boolean> {
+  if (request.auth?.kind === "staff") return true;
+  await reply.code(403).send({
+    error: "Esta rota exige login no painel (JWT)",
+  });
+  return false;
 }

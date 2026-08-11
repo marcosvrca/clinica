@@ -8,6 +8,7 @@ import fjwt from "@fastify/jwt";
 import multipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import { loadEnv, env, corsOrigins } from "./config/env.js";
+import { assertProductionReady } from "./config/production-guards.js";
 import { prisma } from "./infra/prisma.js";
 import { authenticateRequest } from "./http/auth.js";
 import { registerRoutes } from "./http/routes.js";
@@ -16,7 +17,8 @@ import { registerSignupRoutes } from "./http/signup-routes.js";
 import { getClinicBillingInfo } from "./services/subscriptions.js";
 
 async function main() {
-  loadEnv();
+  const config = loadEnv();
+  assertProductionReady(config);
   const isProd = env().NODE_ENV === "production";
   const webDist = path.join(process.cwd(), "web", "dist");
   const serveSpa = isProd && fs.existsSync(webDist);

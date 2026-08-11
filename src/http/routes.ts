@@ -43,6 +43,7 @@ import {
   softDeleteClinicalRecord,
   updateClinicalRecord,
 } from "../services/clinical-records.js";
+import { listClinicalAuditLogs } from "../services/clinical-audit.js";
 import { generateEvolutionDraft } from "../services/evolution-draft.js";
 import {
   CalendarBlockError,
@@ -125,6 +126,15 @@ async function requireClinic(request: Parameters<typeof resolveClinicId>[0], rep
     return null;
   }
   return clinicId;
+}
+
+function staffActor(request: Parameters<typeof resolveClinicId>[0]) {
+  if (request.auth?.kind !== "staff") return undefined;
+  return {
+    staffUserId: request.auth.userId,
+    professionalId: request.auth.professionalId,
+    ip: request.ip,
+  };
 }
 
 function mapAppointment(a: {
@@ -1508,7 +1518,27 @@ h1{font-size:1.25rem;margin:0 0 8px}p{margin:0 0 12px;color:#64748b;line-height:
       const scopePro = await resolveClinicalProfessionalScope(request, reply);
       if (scopePro === null) return;
       const params = z.object({ id: z.string() }).parse(request.params);
-      return getClinicalRecord(clinicId, params.id, scopePro);
+      return getClinicalRecord(clinicId, params.id, scopePro, staffActor(request));
+    } catch (err) {
+      return sendError(reply, err);
+    }
+  });
+
+  app.get("/v1/clinical-records/:id/audit", async (request, reply) => {
+    try {
+      const clinicId = await requireClinic(request, reply);
+      if (!clinicId) return;
+      const scopePro = await resolveClinicalProfessionalScope(request, reply);
+      if (scopePro === null) return;
+      const params = z.object({ id: z.string() }).parse(request.params);
+      // Garante existência + permissão
+      await getClinicalRecord(clinicId, params.id, scopePro);
+      const items = await listClinicalAuditLogs({
+        clinicId,
+        recordId: params.id,
+        scopedProfessionalId: scopePro,
+      });
+      return { items };
     } catch (err) {
       return sendError(reply, err);
     }
@@ -1546,6 +1576,7 @@ h1{font-size:1.25rem;margin:0 0 8px}p{margin:0 0 12px;color:#64748b;line-height:
         professionalId: body.professionalId,
         appointmentId: body.appointmentId,
         scopedProfessionalId: scopePro,
+        actor: staffActor(request),
         sessionNotes: body.observations ?? body.sessionNotes,
         draftContent: body.evolution ?? body.draftContent,
         objectives: body.objectives,
@@ -1594,6 +1625,7 @@ h1{font-size:1.25rem;margin:0 0 8px}p{margin:0 0 12px;color:#64748b;line-height:
         id: params.id,
         professionalId: body.professionalId,
         scopedProfessionalId: scopePro,
+        actor: staffActor(request),
         sessionNotes:
           body.observations !== undefined
             ? body.observations
@@ -1651,7 +1683,12 @@ h1{font-size:1.25rem;margin:0 0 8px}p{margin:0 0 12px;color:#64748b;line-height:
       const scopePro = await resolveClinicalProfessionalScope(request, reply);
       if (scopePro === null) return;
       const params = z.object({ id: z.string() }).parse(request.params);
-      return confirmClinicalRecord(clinicId, params.id, scopePro);
+      return confirmClinicalRecord(
+        clinicId,
+        params.id,
+        scopePro,
+        staffActor(request),
+      );
     } catch (err) {
       return sendError(reply, err);
     }
@@ -1664,7 +1701,12 @@ h1{font-size:1.25rem;margin:0 0 8px}p{margin:0 0 12px;color:#64748b;line-height:
       const scopePro = await resolveClinicalProfessionalScope(request, reply);
       if (scopePro === null) return;
       const params = z.object({ id: z.string() }).parse(request.params);
-      return softDeleteClinicalRecord(clinicId, params.id, scopePro);
+      return softDeleteClinicalRecord(
+        clinicId,
+        params.id,
+        scopePro,
+        staffActor(request),
+      );
     } catch (err) {
       return sendError(reply, err);
     }
@@ -1705,6 +1747,7 @@ h1{font-size:1.25rem;margin:0 0 8px}p{margin:0 0 12px;color:#64748b;line-height:
         mimeType: file.mimetype,
         buffer,
         scopedProfessionalId: scopePro,
+        actor: staffActor(request),
       });
       return reply.code(201).send(saved);
     } catch (err) {
@@ -1758,6 +1801,7 @@ h1{font-size:1.25rem;margin:0 0 8px}p{margin:0 0 12px;color:#64748b;line-height:
           params.id,
           params.fileId,
           scopePro,
+          staffActor(request),
         );
       } catch (err) {
         return sendError(reply, err);

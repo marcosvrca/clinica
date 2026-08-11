@@ -6,8 +6,11 @@ dist
 .env
 .env.*
 !.env.example
+web/.env
+web/.env.local
 uploads
 coverage
 *.log
 .git
+.DS_Store
 .cursor

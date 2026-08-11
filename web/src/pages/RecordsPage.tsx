@@ -22,6 +22,7 @@ import {
 import { api } from "../api/client";
 import { SessionAudioRecorder } from "../components/SessionAudioRecorder";
 import type {
+  ClinicalAuditLog,
   ClinicalFileKind,
   ClinicalRecord,
   ClinicalRecordFile,
@@ -41,7 +42,8 @@ type Section =
   | "objetivos"
   | "diagnosticos"
   | "observacoes"
-  | "arquivos";
+  | "arquivos"
+  | "auditoria";
 
 const SECTIONS: { id: Section; label: string; hint: string }[] = [
   { id: "evolucao", label: "Resumo", hint: "Resumo / evolução da sessão" },
@@ -53,7 +55,18 @@ const SECTIONS: { id: Section; label: string; hint: string }[] = [
   { id: "diagnosticos", label: "Diagnósticos", hint: "CID / DSM" },
   { id: "observacoes", label: "Anotações", hint: "Anotações e áudio" },
   { id: "arquivos", label: "Arquivos", hint: "PDF, exames, laudos, imagens" },
+  { id: "auditoria", label: "Auditoria", hint: "Quem viu, editou ou confirmou" },
 ];
+
+const AUDIT_LABELS: Record<string, string> = {
+  created: "Criado",
+  updated: "Editado",
+  confirmed: "Confirmado no prontuário",
+  deleted: "Excluído",
+  viewed: "Visualizado",
+  file_added: "Arquivo anexado",
+  file_removed: "Arquivo removido",
+};
 
 const FILE_KINDS: {
   kind: ClinicalFileKind;
@@ -236,6 +249,8 @@ export function RecordsPage() {
     recordingConsent: false,
   });
   const [section, setSection] = useState<Section>("evolucao");
+  const [auditLogs, setAuditLogs] = useState<ClinicalAuditLog[]>([]);
+  const [auditLoading, setAuditLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -283,6 +298,26 @@ export function RecordsPage() {
     setSelected(next);
     if (next) setForm(fromRecord(next));
   }, [data, selectedId]);
+
+  useEffect(() => {
+    if (!selected || section !== "auditoria") return;
+    let cancelled = false;
+    setAuditLoading(true);
+    void api
+      .clinicalRecordAudit(selected.id)
+      .then((res) => {
+        if (!cancelled) setAuditLogs(res.items);
+      })
+      .catch(() => {
+        if (!cancelled) setAuditLogs([]);
+      })
+      .finally(() => {
+        if (!cancelled) setAuditLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selected?.id, section]);
 
   const dirty = useMemo(() => {
     if (!selected || selected.status !== "draft") return false;
@@ -938,7 +973,34 @@ export function RecordsPage() {
                 </div>
               ) : null}
 
-              {section !== "arquivos" ? (
+              {section === "auditoria" ? (
+                <div className="audit-timeline">
+                  <p className="muted" style={{ marginTop: 0 }}>
+                    Registro de ações no prontuário (sem conteúdo clínico).
+                  </p>
+                  {auditLoading ? (
+                    <p className="muted">Carregando…</p>
+                  ) : auditLogs.length === 0 ? (
+                    <p className="muted">Nenhum evento ainda.</p>
+                  ) : (
+                    <ul className="catalog-list">
+                      {auditLogs.map((log) => (
+                        <li key={log.id}>
+                          <strong>
+                            {AUDIT_LABELS[log.action] ?? log.action}
+                          </strong>
+                          <span>
+                            {new Date(log.createdAt).toLocaleString("pt-BR")}
+                            {log.ip ? ` · ${log.ip}` : ""}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ) : null}
+
+              {section !== "arquivos" && section !== "auditoria" ? (
                 <label className="consent-row">
                   <input
                     type="checkbox"

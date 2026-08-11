@@ -512,6 +512,23 @@ export type ClinicalRecordsResponse = {
   items: ClinicalRecord[];
 };
 
+export type ClinicalAuditLog = {
+  id: string;
+  action:
+    | "created"
+    | "updated"
+    | "confirmed"
+    | "deleted"
+    | "viewed"
+    | "file_added"
+    | "file_removed";
+  staffUserId: string | null;
+  professionalId: string | null;
+  meta: unknown;
+  ip: string | null;
+  createdAt: string;
+};
+
 export type DashboardPayment = {
   id: string;
   amountCents: number;
