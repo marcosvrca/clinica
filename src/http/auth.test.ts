@@ -64,6 +64,9 @@ describe("service API key allowlist", () => {
     expect(isServiceAllowedPath("/v1/appointments/abc", "PATCH")).toBe(false);
     expect(isServiceAllowedPath("/v1/appointments/abc/move", "POST")).toBe(false);
     expect(isServiceAllowedPath("/v1/reminders/dispatch", "POST")).toBe(false);
+    expect(isServiceAllowedPath("/v1/patients/abc/prep-context", "GET")).toBe(
+      false,
+    );
   });
 });
 

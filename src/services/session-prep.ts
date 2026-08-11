@@ -150,16 +150,23 @@ Não dê diagnóstico definitivo. Não invente risco. Tom calmo e clínico.`,
 
 /**
  * Contexto pré-sessão: últimas sessões, temas, objetivos, acontecimentos e pendências.
+ * Com `scopedProfessionalId`, só descriptografa/expõe conteúdo clínico daquele profissional.
  */
 export async function getSessionPrepContext(input: {
   clinicId: string;
   patientId: string;
   appointmentId?: string;
+  /** Quando definido, isola conteúdo clínico a este profissional */
+  scopedProfessionalId?: string;
 }): Promise<SessionPrepContext> {
   const patient = await prisma.patient.findFirst({
     where: { id: input.patientId, clinicId: input.clinicId },
   });
   if (!patient) throw new SessionPrepError("Paciente não encontrado", 404);
+
+  const clinicalScope = input.scopedProfessionalId
+    ? { professionalId: input.scopedProfessionalId }
+    : {};
 
   const appointment = input.appointmentId
     ? await prisma.appointment.findFirst({
@@ -176,10 +183,22 @@ export async function getSessionPrepContext(input: {
           patientId: patient.id,
           status: { in: [AppointmentStatus.confirmed, AppointmentStatus.pending] },
           startsAt: { gte: new Date(Date.now() - 2 * 60 * 60_000) },
+          ...clinicalScope,
         },
         include: { service: true, professional: true },
         orderBy: { startsAt: "asc" },
       });
+
+  if (
+    appointment &&
+    input.scopedProfessionalId &&
+    appointment.professionalId !== input.scopedProfessionalId
+  ) {
+    throw new SessionPrepError(
+      "Sem permissão para o contexto clínico desta sessão",
+      403,
+    );
+  }
 
   const pastAppointments = await prisma.appointment.findMany({
     where: {
@@ -192,6 +211,7 @@ export async function getSessionPrepContext(input: {
           AppointmentStatus.no_show,
         ],
       },
+      ...clinicalScope,
       ...(appointment
         ? { id: { not: appointment.id }, startsAt: { lt: appointment.startsAt } }
         : { startsAt: { lt: new Date() } }),
@@ -210,6 +230,7 @@ export async function getSessionPrepContext(input: {
       clinicId: input.clinicId,
       patientId: patient.id,
       deletedAt: null,
+      ...clinicalScope,
     },
     orderBy: [{ confirmedAt: "desc" }, { updatedAt: "desc" }],
     take: 12,
@@ -228,6 +249,12 @@ export async function getSessionPrepContext(input: {
   const objectives = uniqueKeepOrder(
     confirmedRecords.flatMap((r) => splitBullets(decryptClinical(r.objectives))),
   );
+  // Notas do cadastro: só no escopo admin (sem filtro) — podem conter conteúdo clínico compartilhado
+  const patientNotesForPrep = input.scopedProfessionalId
+    ? null
+    : patient.notes
+      ? decryptClinical(patient.notes)
+      : null;
   const latestEvents = uniqueKeepOrder([
     ...confirmedRecords.flatMap((r) =>
       splitBullets(decryptClinical(r.importantPoints)),
@@ -235,7 +262,7 @@ export async function getSessionPrepContext(input: {
     ...confirmedRecords
       .slice(0, 3)
       .flatMap((r) => splitBullets(decryptClinical(r.sessionNotes))),
-    ...(patient.notes ? splitBullets(patient.notes) : []),
+    ...(patientNotesForPrep ? splitBullets(patientNotesForPrep) : []),
   ]);
 
   const recentSessions = pastAppointments.map((a) => {

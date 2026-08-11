@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { PatientDocumentKind } from "@prisma/client";
 import { prisma } from "../infra/prisma.js";
 import { normalizePhone } from "../lib/time.js";
+import { decryptClinical, encryptClinical } from "../lib/clinical-crypto.js";
 
 export class PatientError extends Error {
   constructor(
@@ -64,7 +65,7 @@ function toWriteData(input: PatientWriteInput) {
     phone: normalizePhone(input.phone),
     name: input.name?.trim() || null,
     email: input.email?.trim() || null,
-    notes: input.notes?.trim() || null,
+    notes: encryptClinical(input.notes?.trim() || null),
     cpf: digits(input.cpf),
     birthDate: parseBirthDate(input.birthDate),
     gender: input.gender?.trim() || null,
@@ -136,7 +137,7 @@ export function mapPatientDetail(p: {
     phone: p.phone,
     name: p.name,
     email: p.email,
-    notes: p.notes,
+    notes: decryptClinical(p.notes),
     cpf: p.cpf,
     birthDate: p.birthDate?.toISOString().slice(0, 10) ?? null,
     gender: p.gender,
@@ -378,7 +379,11 @@ function buildPatientTimeline(patient: {
   return events.sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
 }
 
-export async function getPatientDetail(clinicId: string, id: string) {
+export async function getPatientDetail(
+  clinicId: string,
+  id: string,
+  scopedProfessionalId?: string,
+) {
   const patient = await prisma.patient.findFirst({
     where: { id, clinicId },
     include: {
@@ -392,7 +397,12 @@ export async function getPatientDetail(clinicId: string, id: string) {
         },
       },
       clinicalRecords: {
-        where: { deletedAt: null },
+        where: {
+          deletedAt: null,
+          ...(scopedProfessionalId
+            ? { professionalId: scopedProfessionalId }
+            : {}),
+        },
         orderBy: { updatedAt: "desc" },
         take: 100,
         include: { professional: true },

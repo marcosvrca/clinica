@@ -92,7 +92,7 @@ import { env } from "../config/env.js";
 import { escapeHtml, safeUrl } from "../lib/html.js";
 import { isEmailConfigured } from "../lib/mailer.js";
 import { addDays, formatDateTime, partsInTimeZone, zonedLocalToUtc } from "../lib/time.js";
-import { registerAuthRoutes, resolveClinicId, resolveClinicalProfessionalScope } from "./auth.js";
+import { registerAuthRoutes, requireStaff, resolveClinicId, resolveClinicalProfessionalScope } from "./auth.js";
 import {
   UploadMimeError,
   assertClinicalUploadMime,
@@ -293,8 +293,11 @@ export async function registerRoutes(app: FastifyInstance) {
   });
 
   app.get("/v1/dashboard", async (request, reply) => {
+    if (!(await requireStaff(request, reply))) return;
     const clinicId = await requireClinic(request, reply);
     if (!clinicId) return;
+    const scopePro = await resolveClinicalProfessionalScope(request, reply);
+    if (scopePro === null) return;
 
     const clinic = await prisma.clinic.findUniqueOrThrow({ where: { id: clinicId } });
     const now = new Date();
@@ -368,6 +371,7 @@ export async function registerRoutes(app: FastifyInstance) {
 
     const staffProId =
       request.auth?.kind === "staff" ? request.auth.professionalId : null;
+    const clinicalWhere = scopePro ? { professionalId: scopePro } : {};
 
     const paymentInclude = {
       patient: true,
@@ -507,6 +511,7 @@ export async function registerRoutes(app: FastifyInstance) {
           clinicId,
           status: ClinicalRecordStatus.draft,
           deletedAt: null,
+          ...clinicalWhere,
         },
         include: {
           patient: true,
@@ -521,6 +526,7 @@ export async function registerRoutes(app: FastifyInstance) {
           clinicId,
           status: ClinicalRecordStatus.draft,
           deletedAt: null,
+          ...clinicalWhere,
         },
       }),
       prisma.appointment.findMany({
@@ -1489,6 +1495,7 @@ h1{font-size:1.25rem;margin:0 0 8px}p{margin:0 0 12px;color:#64748b;line-height:
 
   app.get("/v1/clinical-records", async (request, reply) => {
     try {
+      if (!(await requireStaff(request, reply))) return;
       const clinicId = await requireClinic(request, reply);
       if (!clinicId) return;
       const scopePro = await resolveClinicalProfessionalScope(request, reply);

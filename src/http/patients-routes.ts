@@ -3,7 +3,7 @@ import { createReadStream } from "node:fs";
 import path from "node:path";
 import { PatientDocumentKind } from "@prisma/client";
 import { z } from "zod";
-import { resolveClinicId } from "./auth.js";
+import { resolveClinicId, resolveClinicalProfessionalScope } from "./auth.js";
 import {
   PatientError,
   createPatient,
@@ -108,8 +108,10 @@ export async function registerPatientRoutes(app: FastifyInstance) {
     try {
       const clinicId = await requireClinic(request, reply);
       if (!clinicId) return;
+      const scopePro = await resolveClinicalProfessionalScope(request, reply);
+      if (scopePro === null) return;
       const params = z.object({ id: z.string() }).parse(request.params);
-      return getPatientDetail(clinicId, params.id);
+      return getPatientDetail(clinicId, params.id, scopePro);
     } catch (err) {
       return sendError(reply, err);
     }
@@ -119,6 +121,8 @@ export async function registerPatientRoutes(app: FastifyInstance) {
     try {
       const clinicId = await requireClinic(request, reply);
       if (!clinicId) return;
+      const scopePro = await resolveClinicalProfessionalScope(request, reply);
+      if (scopePro === null) return;
       const params = z.object({ id: z.string() }).parse(request.params);
       const q = z
         .object({ appointmentId: z.string().optional() })
@@ -127,6 +131,7 @@ export async function registerPatientRoutes(app: FastifyInstance) {
         clinicId,
         patientId: params.id,
         appointmentId: q.appointmentId,
+        scopedProfessionalId: scopePro,
       });
     } catch (err) {
       return sendError(reply, err);
