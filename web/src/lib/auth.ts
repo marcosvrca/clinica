@@ -16,6 +16,7 @@ export type AuthUser = {
     complimentary: boolean;
     hasSubscription: boolean;
   };
+  isPlatformAdmin?: boolean;
 };
 
 export function getToken(): string | null {

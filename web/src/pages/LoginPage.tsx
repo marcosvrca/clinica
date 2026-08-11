@@ -13,12 +13,8 @@ function safeReturnPath(raw: string | null): string {
 export function LoginPage() {
   const [searchParams] = useSearchParams();
   const returnTo = safeReturnPath(searchParams.get("from"));
-  const [email, setEmail] = useState(
-    import.meta.env.DEV ? "ana@bemestar.local" : "",
-  );
-  const [password, setPassword] = useState(
-    import.meta.env.DEV ? "demo1234" : "",
-  );
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -88,10 +84,6 @@ export function LoginPage() {
           {" · "}
           Ainda não tem uma conta? <Link to="/assine">Registre-se</Link>
         </p>
-
-        {import.meta.env.DEV ? (
-          <p className="muted login-hint">Demo: ana@bemestar.local / demo1234</p>
-        ) : null}
       </form>
     </div>
   );

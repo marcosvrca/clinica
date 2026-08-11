@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
+import { isPlatformAdminEmail } from "../services/platform.js";
 import { env } from "../config/env.js";
 import { prisma } from "../infra/prisma.js";
 
@@ -213,6 +214,7 @@ export async function registerAuthRoutes(app: FastifyInstance) {
         professionalId: user.professionalId,
         clinic: { id: user.clinic.id, name: user.clinic.name },
         billing,
+        isPlatformAdmin: isPlatformAdminEmail(user.email),
       },
     };
   });
@@ -238,6 +240,7 @@ export async function registerAuthRoutes(app: FastifyInstance) {
       professionalId: user.professionalId,
       clinic: { id: user.clinic.id, name: user.clinic.name },
       billing,
+      isPlatformAdmin: isPlatformAdminEmail(user.email),
     };
   });
 

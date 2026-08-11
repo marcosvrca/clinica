@@ -13,6 +13,7 @@ import { CompleteSignupPage } from "./pages/CompleteSignupPage";
 import { AcceptInvitePage } from "./pages/AcceptInvitePage";
 import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
 import { ResetPasswordPage } from "./pages/ResetPasswordPage";
+import { PlatformPage } from "./pages/PlatformPage";
 import {
   FinancePage,
   ReportsPage,
@@ -59,6 +60,7 @@ export default function App() {
             <Route path="prontuarios" element={<RecordsPage />} />
             <Route path="relatorios" element={<ReportsPage />} />
             <Route path="configuracoes" element={<SettingsPage />} />
+            <Route path="plataforma" element={<PlatformPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Route>

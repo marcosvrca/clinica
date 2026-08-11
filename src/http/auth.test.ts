@@ -67,6 +67,7 @@ describe("service API key allowlist", () => {
     expect(isServiceAllowedPath("/v1/patients/abc/prep-context", "GET")).toBe(
       false,
     );
+    expect(isServiceAllowedPath("/v1/platform/overview", "GET")).toBe(false);
   });
 });
 
@@ -101,9 +102,10 @@ describe("production guards", () => {
     PAYMENTS_ALLOW_SANDBOX: "auto",
     PAYMENTS_WEBHOOK_SECRET: "prod-webhook-secret-strong",
     COMPLIMENTARY_SIGNUP_EMAILS: "",
+    PLATFORM_ADMIN_EMAILS: "",
     SUBSCRIPTION_PLAN_CODE: "pro_monthly",
     SUBSCRIPTION_PLAN_NAME: "Plano",
-    SUBSCRIPTION_AMOUNT_CENTS: 19900,
+    SUBSCRIPTION_AMOUNT_CENTS: 3990,
     SUBSCRIPTION_PLAN_DESCRIPTION: "desc",
     OPENAI_API_KEY: "",
     OPENAI_MODEL: "gpt-4o-mini",

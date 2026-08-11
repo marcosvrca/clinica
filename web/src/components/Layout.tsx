@@ -11,9 +11,10 @@ import {
   Users,
   Wallet,
   BarChart3,
+  Shield,
 } from "lucide-react";
 import { api } from "../api/client";
-import { clearSession, getStoredUser } from "../lib/auth";
+import { clearSession, getStoredUser, setSession, getToken } from "../lib/auth";
 import { initials } from "../lib/ui";
 import { TopbarSearch } from "./TopbarSearch";
 
@@ -43,6 +44,12 @@ const NAV = [
   { to: "/relatorios", label: "Relatórios", icon: BarChart3 },
   { to: "/configuracoes", label: "Configurações", icon: Settings },
 ] as const;
+
+const PLATFORM_NAV = {
+  to: "/plataforma",
+  label: "Plataforma",
+  icon: Shield,
+} as const;
 
 const PAGE_META: Record<string, { title: string; subtitle: string; search: string }> = {
   "/": {
@@ -95,18 +102,31 @@ const PAGE_META: Record<string, { title: string; subtitle: string; search: strin
     subtitle: "Preferências e integrações",
     search: "Buscar pacientes…",
   },
+  "/plataforma": {
+    title: "Plataforma",
+    subtitle: "Métricas e clínicas (acesso restrito)",
+    search: "Buscar…",
+  },
 };
 
 export function Layout() {
   const location = useLocation();
   const navigate = useNavigate();
   const stored = getStoredUser();
-  const [clinicName, setClinicName] = useState(stored?.clinic.name ?? "Clínica Bem Estar");
+  const [clinicName, setClinicName] = useState(stored?.clinic.name ?? "Bem Estar");
   const [professionalName, setProfessionalName] = useState(
-    stored?.name ?? "Dra. Ana Carolina",
+    stored?.name ?? "Profissional",
   );
   const [specialty, setSpecialty] = useState("Psicóloga");
   const [billingBanner, setBillingBanner] = useState<string | null>(null);
+  const [isPlatformAdmin, setIsPlatformAdmin] = useState(
+    Boolean(stored?.isPlatformAdmin),
+  );
+
+  const navItems = useMemo(() => {
+    if (!isPlatformAdmin) return [...NAV];
+    return [...NAV, PLATFORM_NAV];
+  }, [isPlatformAdmin]);
 
   useEffect(() => {
     void (async () => {
@@ -118,6 +138,9 @@ export function Layout() {
         ]);
         setClinicName(clinic.name);
         setProfessionalName(me.name);
+        setIsPlatformAdmin(Boolean(me.isPlatformAdmin));
+        const token = getToken();
+        if (token) setSession(token, me);
         if (dash.professional) {
           setSpecialty(
             dash.professional.specialty?.toLowerCase().includes("psic")
@@ -191,7 +214,7 @@ export function Layout() {
           </div>
 
           <nav className="side-nav" aria-label="Principal">
-            {NAV.map((item) => {
+            {navItems.map((item) => {
               const Icon = item.icon;
               return (
                 <NavLink

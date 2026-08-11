@@ -6,6 +6,7 @@ export type AuthUser = {
   professionalId: string | null;
   clinic: { id: string; name: string };
   billing?: ClinicBillingInfo;
+  isPlatformAdmin?: boolean;
 };
 
 export type StaffMember = {

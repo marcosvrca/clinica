@@ -57,10 +57,15 @@ const envSchema = z.object({
    * Ex.: dono@mvflow.com.br
    */
   COMPLIMENTARY_SIGNUP_EMAILS: z.string().optional().default(""),
+  /**
+   * E-mails com acesso à área restrita da plataforma (métricas SaaS, clínicas).
+   * Separados por vírgula. Independente do papel admin da clínica.
+   */
+  PLATFORM_ADMIN_EMAILS: z.string().optional().default(""),
   /** Assinatura SaaS do painel (onboarding). */
   SUBSCRIPTION_PLAN_CODE: z.string().default("pro_monthly"),
   SUBSCRIPTION_PLAN_NAME: z.string().default("Plano Profissional"),
-  SUBSCRIPTION_AMOUNT_CENTS: z.coerce.number().int().positive().default(19900),
+  SUBSCRIPTION_AMOUNT_CENTS: z.coerce.number().int().positive().default(3990),
   SUBSCRIPTION_PLAN_DESCRIPTION: z
     .string()
     .default(

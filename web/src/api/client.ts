@@ -230,6 +230,37 @@ export const api = {
       body: JSON.stringify({ currentPassword, newPassword }),
     }),
   me: () => request<AuthUser>("/v1/auth/me"),
+  platformOverview: () =>
+    request<{
+      kpis: {
+        clinics: number;
+        staffActive: number;
+        patients: number;
+        appointmentsThisMonth: number;
+        subscriptionsComplimentary: number;
+        subscriptionsPaying: number;
+        subscriptionsPastDue: number;
+        sessionPaymentsThisMonth: number;
+        sessionRevenueCentsThisMonth: number;
+        planAmountCents: number;
+      };
+      clinics: {
+        id: string;
+        name: string;
+        slug: string;
+        active: boolean;
+        createdAt: string;
+        staffCount: number;
+        patientCount: number;
+        appointmentCount: number;
+        billing: {
+          method: string | null;
+          billingStatus: string;
+          amountCents: number;
+          email: string;
+        } | null;
+      }[];
+    }>("/v1/platform/overview"),
   billing: () =>
     request<{
       billingStatus: "none" | "active" | "past_due" | "cancelled";
