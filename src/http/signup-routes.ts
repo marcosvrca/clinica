@@ -6,6 +6,7 @@ import {
   completeSubscriptionSignup,
   getSetupContext,
   getSubscriptionPlan,
+  getSubscriptionPlans,
   getSubscriptionStatus,
   simulateSubscriptionPay,
   startSubscriptionCheckout,
@@ -27,7 +28,8 @@ function sendError(reply: FastifyReply, err: unknown) {
 
 export async function registerSignupRoutes(app: FastifyInstance) {
   app.get("/v1/public/signup/plan", async () => {
-    return { plan: getSubscriptionPlan() };
+    const plans = getSubscriptionPlans();
+    return { plan: getSubscriptionPlan(), plans };
   });
 
   app.get("/v1/public/signup/setup", async (request, reply) => {
@@ -67,6 +69,7 @@ export async function registerSignupRoutes(app: FastifyInstance) {
           email: z.string().email(),
           method: z.enum(["pix", "card"]).optional(),
           provider: z.nativeEnum(OnlineProvider).optional(),
+          planCode: z.enum(["solo_monthly", "team_monthly"]).optional(),
         })
         .parse(request.body);
       const created = await startSubscriptionCheckout(body);

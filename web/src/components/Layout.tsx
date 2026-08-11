@@ -12,6 +12,7 @@ import {
   Wallet,
   BarChart3,
   Shield,
+  Briefcase,
 } from "lucide-react";
 import { api } from "../api/client";
 import { clearSession, getStoredUser, setSession, getToken } from "../lib/auth";
@@ -39,6 +40,7 @@ const NAV = [
   { to: "/pacientes", label: "Pacientes", icon: Users },
   { to: "/agenda", label: "Agenda", icon: CalendarDays },
   { to: "/sessoes", label: "Sessões", icon: ClipboardList },
+  { to: "/servicos", label: "Serviços", icon: Briefcase },
   { to: "/prontuarios", label: "Prontuários", icon: FileText },
   { to: "/financeiro", label: "Financeiro", icon: Wallet },
   { to: "/relatorios", label: "Relatórios", icon: BarChart3 },

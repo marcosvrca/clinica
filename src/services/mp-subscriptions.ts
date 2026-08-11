@@ -13,6 +13,7 @@ export type MpSubscriptionCheckoutInput = {
   email: string;
   amountCents: number;
   planName: string;
+  planCode: string;
   backUrl: string;
 };
 
@@ -42,17 +43,36 @@ async function mpFetch(path: string, init?: RequestInit) {
   return data;
 }
 
-/** Cria ou reutiliza o plano mensal de Assinaturas. */
-export async function ensureMercadoPagoPreapprovalPlan(): Promise<string> {
-  const configured = env().MERCADOPAGO_PREAPPROVAL_PLAN_ID.trim();
+function configuredPreapprovalPlanId(planCode: string): string {
+  if (planCode === "team_monthly") {
+    return (
+      env().MERCADOPAGO_PREAPPROVAL_PLAN_ID_TEAM.trim() ||
+      env().MERCADOPAGO_PREAPPROVAL_PLAN_ID.trim()
+    );
+  }
+  return (
+    env().MERCADOPAGO_PREAPPROVAL_PLAN_ID_SOLO.trim() ||
+    env().MERCADOPAGO_PREAPPROVAL_PLAN_ID.trim()
+  );
+}
+
+/** Cria ou reutiliza o plano mensal de Assinaturas para o planCode. */
+export async function ensureMercadoPagoPreapprovalPlan(
+  planCode = "solo_monthly",
+  amountCents?: number,
+  planName?: string,
+): Promise<string> {
+  const configured = configuredPreapprovalPlanId(planCode);
   if (configured) return configured;
 
-  const amount = Number((env().SUBSCRIPTION_AMOUNT_CENTS / 100).toFixed(2));
+  const amount = Number(
+    ((amountCents ?? env().SUBSCRIPTION_SOLO_AMOUNT_CENTS) / 100).toFixed(2),
+  );
   const backUrl = env().WEB_BASE_URL.replace(/\/$/, "") + "/assine";
   const data = await mpFetch("/preapproval_plan", {
     method: "POST",
     body: JSON.stringify({
-      reason: env().SUBSCRIPTION_PLAN_NAME,
+      reason: planName ?? env().SUBSCRIPTION_SOLO_PLAN_NAME,
       auto_recurring: {
         frequency: 1,
         frequency_type: "months",
@@ -60,14 +80,18 @@ export async function ensureMercadoPagoPreapprovalPlan(): Promise<string> {
         currency_id: "BRL",
       },
       back_url: backUrl,
-      external_reference: env().SUBSCRIPTION_PLAN_CODE,
+      external_reference: planCode,
     }),
   });
 
   const id = typeof data.id === "string" ? data.id : null;
   if (!id) throw new Error("Mercado Pago: plano sem id");
+  const hint =
+    planCode === "team_monthly"
+      ? "MERCADOPAGO_PREAPPROVAL_PLAN_ID_TEAM"
+      : "MERCADOPAGO_PREAPPROVAL_PLAN_ID_SOLO";
   console.info(
-    `[mp-subscriptions] preapproval_plan criado id=${id} — defina MERCADOPAGO_PREAPPROVAL_PLAN_ID no Railway para reutilizar`,
+    `[mp-subscriptions] preapproval_plan criado id=${id} plan=${planCode} — defina ${hint} no Railway para reutilizar`,
   );
   return id;
 }
@@ -104,7 +128,11 @@ export async function createMercadoPagoSubscriptionCheckout(
     };
   }
 
-  const planId = await ensureMercadoPagoPreapprovalPlan();
+  const planId = await ensureMercadoPagoPreapprovalPlan(
+    input.planCode,
+    input.amountCents,
+    input.planName,
+  );
   const data = await mpFetch("/preapproval", {
     method: "POST",
     body: JSON.stringify({

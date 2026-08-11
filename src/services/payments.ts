@@ -255,6 +255,21 @@ export async function createPayment(input: {
     where: { id: input.patientId, clinicId: input.clinicId },
   });
   if (!patient) throw new PaymentError("Paciente não encontrado", 404);
+  if (!patient.active) {
+    throw new PaymentError(
+      "Paciente inativo. Reative o cadastro para cobrar.",
+      422,
+    );
+  }
+  if (
+    patient.billingPaused &&
+    (input.status ?? PaymentStatus.pending) === PaymentStatus.pending
+  ) {
+    throw new PaymentError(
+      "Cobranças pausadas para este paciente. Retome as cobranças ou registre como pago.",
+      422,
+    );
+  }
 
   const method = parseMethod(input.method ?? null);
   const status = input.status ?? PaymentStatus.pending;

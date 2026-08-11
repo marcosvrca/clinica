@@ -14,6 +14,7 @@ import { AcceptInvitePage } from "./pages/AcceptInvitePage";
 import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
 import { ResetPasswordPage } from "./pages/ResetPasswordPage";
 import { PlatformPage } from "./pages/PlatformPage";
+import { ServicesPage } from "./pages/ServicesPage";
 import {
   FinancePage,
   ReportsPage,
@@ -56,6 +57,7 @@ export default function App() {
             <Route path="agenda" element={<AgendaPage />} />
             <Route path="agendar" element={<BookPage />} />
             <Route path="sessoes" element={<SessionsPage />} />
+            <Route path="servicos" element={<ServicesPage />} />
             <Route path="financeiro" element={<FinancePage />} />
             <Route path="prontuarios" element={<RecordsPage />} />
             <Route path="relatorios" element={<ReportsPage />} />

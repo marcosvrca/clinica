@@ -187,6 +187,15 @@ export async function registerAuthRoutes(app: FastifyInstance) {
       return reply.code(401).send({ error: "E-mail ou senha inválidos" });
     }
 
+    const { ensureOwnerProfessional } = await import(
+      "../services/owner-professional.js"
+    );
+    const ensured = await ensureOwnerProfessional({
+      clinicId: user.clinicId,
+      staffUserId: user.id,
+    });
+    const professionalId = ensured?.id ?? user.professionalId;
+
     const { getClinicBillingInfo } = await import(
       "../services/subscriptions.js"
     );
@@ -197,7 +206,7 @@ export async function registerAuthRoutes(app: FastifyInstance) {
         sub: user.id,
         clinicId: user.clinicId,
         role: user.role,
-        professionalId: user.professionalId,
+        professionalId,
         email: user.email,
         name: user.name,
       },
@@ -211,7 +220,7 @@ export async function registerAuthRoutes(app: FastifyInstance) {
         email: user.email,
         name: user.name,
         role: user.role,
-        professionalId: user.professionalId,
+        professionalId,
         clinic: { id: user.clinic.id, name: user.clinic.name },
         billing,
         isPlatformAdmin: isPlatformAdminEmail(user.email),
@@ -228,6 +237,16 @@ export async function registerAuthRoutes(app: FastifyInstance) {
       include: { clinic: true },
     });
     if (!user) return reply.code(401).send({ error: "unauthorized" });
+
+    const { ensureOwnerProfessional } = await import(
+      "../services/owner-professional.js"
+    );
+    const ensured = await ensureOwnerProfessional({
+      clinicId: user.clinicId,
+      staffUserId: user.id,
+    });
+    const professionalId = ensured?.id ?? user.professionalId;
+
     const { getClinicBillingInfo } = await import(
       "../services/subscriptions.js"
     );
@@ -237,7 +256,7 @@ export async function registerAuthRoutes(app: FastifyInstance) {
       email: user.email,
       name: user.name,
       role: user.role,
-      professionalId: user.professionalId,
+      professionalId,
       clinic: { id: user.clinic.id, name: user.clinic.name },
       billing,
       isPlatformAdmin: isPlatformAdminEmail(user.email),

@@ -62,15 +62,38 @@ const envSchema = z.object({
    * Separados por vírgula. Independente do papel admin da clínica.
    */
   PLATFORM_ADMIN_EMAILS: z.string().optional().default(""),
-  /** Assinatura SaaS do painel (onboarding). */
-  SUBSCRIPTION_PLAN_CODE: z.string().default("pro_monthly"),
-  SUBSCRIPTION_PLAN_NAME: z.string().default("Plano Profissional"),
+  /**
+   * @deprecated Preferir SUBSCRIPTION_SOLO_* — mantido como alias do Individual.
+   */
+  SUBSCRIPTION_PLAN_CODE: z.string().default("solo_monthly"),
+  SUBSCRIPTION_PLAN_NAME: z.string().default("Individual"),
   SUBSCRIPTION_AMOUNT_CENTS: z.coerce.number().int().positive().default(3990),
   SUBSCRIPTION_PLAN_DESCRIPTION: z
     .string()
     .default(
-      "Agenda, pacientes, prontuário revisável e financeiro do consultório.",
+      "Para quem atende sozinho: agenda, pacientes, prontuário e financeiro.",
     ),
+  /** Plano Individual — 1 profissional (dono). */
+  SUBSCRIPTION_SOLO_PLAN_NAME: z.string().default("Individual"),
+  SUBSCRIPTION_SOLO_AMOUNT_CENTS: z.coerce.number().int().positive().default(3990),
+  SUBSCRIPTION_SOLO_PLAN_DESCRIPTION: z
+    .string()
+    .default(
+      "Para quem atende sozinho: agenda, pacientes, prontuário e financeiro.",
+    ),
+  /** Plano Compartilhado — até N profissionais. */
+  SUBSCRIPTION_TEAM_PLAN_NAME: z.string().default("Compartilhado"),
+  SUBSCRIPTION_TEAM_AMOUNT_CENTS: z.coerce.number().int().positive().default(6990),
+  SUBSCRIPTION_TEAM_PLAN_DESCRIPTION: z
+    .string()
+    .default(
+      "Consultório com equipe: até 5 profissionais na mesma clínica.",
+    ),
+  SUBSCRIPTION_TEAM_MAX_PROFESSIONALS: z.coerce.number().int().positive().default(5),
+  /** Id do plano Assinaturas MP Individual. Vazio = cria na 1ª cobrança. */
+  MERCADOPAGO_PREAPPROVAL_PLAN_ID_SOLO: z.string().optional().default(""),
+  /** Id do plano Assinaturas MP Compartilhado. */
+  MERCADOPAGO_PREAPPROVAL_PLAN_ID_TEAM: z.string().optional().default(""),
   /** IA para rascunho de evolução (opcional). Sem chave = gerador local estruturado. */
   OPENAI_API_KEY: z.string().optional().default(""),
   OPENAI_MODEL: z.string().default("gpt-4o-mini"),

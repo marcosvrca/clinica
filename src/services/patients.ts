@@ -103,6 +103,8 @@ export function mapPatientDetail(p: {
   profession: string | null;
   maritalStatus: string | null;
   photoPath: string | null;
+  active: boolean;
+  billingPaused: boolean;
   zipCode: string | null;
   street: string | null;
   addressNumber: string | null;
@@ -144,6 +146,8 @@ export function mapPatientDetail(p: {
     profession: p.profession,
     maritalStatus: p.maritalStatus,
     hasPhoto: Boolean(p.photoPath),
+    active: p.active,
+    billingPaused: p.billingPaused,
     zipCode: p.zipCode,
     street: p.street,
     addressNumber: p.addressNumber,
@@ -445,6 +449,54 @@ export async function getPatientDetail(
     ...mapPatientDetail(patient),
     history,
     timeline: buildPatientTimeline(patient),
+  };
+}
+
+export async function setPatientLifecycle(
+  clinicId: string,
+  patientId: string,
+  input: { active?: boolean; billingPaused?: boolean },
+) {
+  const patient = await prisma.patient.findFirst({
+    where: { id: patientId, clinicId },
+  });
+  if (!patient) throw new PatientError("Paciente não encontrado", 404);
+
+  const nextActive = input.active ?? patient.active;
+  const nextBillingPaused =
+    input.billingPaused ?? (nextActive ? patient.billingPaused : true);
+
+  const updated = await prisma.patient.update({
+    where: { id: patient.id },
+    data: {
+      active: nextActive,
+      // Inativar também pausa cobranças; reativar não retoma sozinho
+      billingPaused: nextActive ? nextBillingPaused : true,
+    },
+  });
+
+  if (!updated.active || updated.billingPaused) {
+    await prisma.reminder.updateMany({
+      where: {
+        patientId: updated.id,
+        status: "pending",
+        ...(updated.active && updated.billingPaused
+          ? { kind: "payment" }
+          : {}),
+      },
+      data: { status: "cancelled" },
+    });
+  }
+
+  return {
+    id: updated.id,
+    active: updated.active,
+    billingPaused: updated.billingPaused,
+    status: !updated.active
+      ? ("inativo" as const)
+      : updated.billingPaused
+        ? ("pausado" as const)
+        : ("ativo" as const),
   };
 }
 

@@ -117,6 +117,12 @@ export async function bookAppointment(input: {
     phone: input.phone,
     name: input.patientName,
   });
+  if (!patient.active) {
+    throw new AppointmentError(
+      "Paciente inativo. Reative o cadastro antes de agendar.",
+      422,
+    );
+  }
 
   const recurrenceGroupId = weeklyWeeks > 0 ? randomUUID() : null;
   const createdIds: string[] = [];
@@ -171,7 +177,11 @@ export async function bookAppointment(input: {
       createdIds.push(created.id);
       if (week === 0) firstCreated = created;
 
-      if (service.priceCents != null && service.priceCents > 0) {
+      if (
+        !patient.billingPaused &&
+        service.priceCents != null &&
+        service.priceCents > 0
+      ) {
         const payment = await tx.payment.create({
           data: {
             clinicId: input.clinicId,

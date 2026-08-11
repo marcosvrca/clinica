@@ -63,7 +63,11 @@ export function PlatformPage() {
             ["Assinaturas pagantes", String(k.subscriptionsPaying)],
             ["Complimentary", String(k.subscriptionsComplimentary)],
             ["Em atraso", String(k.subscriptionsPastDue)],
-            ["Plano", money(k.planAmountCents) + "/mês"],
+            ["Individual", money(k.planAmountCents) + "/mês"],
+            [
+              "Compartilhado",
+              money(k.teamPlanAmountCents ?? 6990) + "/mês",
+            ],
             ["Receita sessões (mês)", money(k.sessionRevenueCentsThisMonth)],
           ].map(([label, value]) => (
             <div key={label} className="card pad">

@@ -29,6 +29,11 @@ export type ClinicBillingInfo = {
   cancelAtPeriodEnd: boolean;
   complimentary: boolean;
   hasSubscription: boolean;
+  planCode?: string | null;
+  planName?: string | null;
+  maxProfessionals?: number;
+  professionalsUsed?: number;
+  canAddProfessional?: boolean;
 };
 
 export type SubscriptionPlan = {
@@ -36,6 +41,7 @@ export type SubscriptionPlan = {
   name: string;
   amountCents: number;
   description: string;
+  maxProfessionals?: number;
   currency: "BRL";
   interval: "month";
 };
@@ -240,6 +246,9 @@ export type Service = {
   description: string | null;
   durationMinutes: number;
   priceCents: number | null;
+  active?: boolean;
+  professionalIds?: string[];
+  professionals?: { id: string; name: string }[];
 };
 
 export type Professional = {
@@ -286,9 +295,11 @@ export type Patient = {
   insuranceName?: string | null;
   profession?: string | null;
   hasPhoto?: boolean;
+  active: boolean;
+  billingPaused: boolean;
   createdAt: string;
   appointmentsCount: number;
-  status: "ativo" | "pausado";
+  status: "ativo" | "pausado" | "inativo";
   plan: string;
   therapist: { id: string; name: string; tag: string } | null;
   lastAppointment: {
@@ -364,6 +375,8 @@ export type PatientTimelineEvent = {
 export type PatientDetail = PatientWritePayload & {
   id: string;
   hasPhoto: boolean;
+  active: boolean;
+  billingPaused: boolean;
   createdAt: string;
   updatedAt: string;
   documents: PatientDocument[];

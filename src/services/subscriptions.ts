@@ -27,6 +27,22 @@ import {
   createMercadoPagoSubscriptionCheckout,
   periodEndFromNow,
 } from "./mp-subscriptions.js";
+import {
+  getSubscriptionPlan,
+  maxProfessionalsForPlanCode,
+  resolveCheckoutPlanCode,
+  getTeamPlan,
+  getSoloPlan,
+} from "./saas-plans.js";
+
+export {
+  getSubscriptionPlan,
+  getSubscriptionPlans,
+  maxProfessionalsForPlanCode,
+  getSoloPlan,
+  getTeamPlan,
+  TEAM_PLAN_CODE,
+} from "./saas-plans.js";
 
 export class SubscriptionError extends Error {
   constructor(
@@ -70,17 +86,6 @@ async function uniqueClinicSlug(name: string) {
     if (!exists) return slug;
   }
   return `${base}-${randomBytes(4).toString("hex")}`;
-}
-
-export function getSubscriptionPlan() {
-  return {
-    code: env().SUBSCRIPTION_PLAN_CODE,
-    name: env().SUBSCRIPTION_PLAN_NAME,
-    amountCents: env().SUBSCRIPTION_AMOUNT_CENTS,
-    description: env().SUBSCRIPTION_PLAN_DESCRIPTION,
-    currency: "BRL" as const,
-    interval: "month" as const,
-  };
 }
 
 export function complimentarySignupEmails(): Set<string> {
@@ -153,6 +158,7 @@ export async function startSubscriptionCheckout(input: {
   email: string;
   method?: CheckoutMethod;
   provider?: OnlineProvider;
+  planCode?: string;
 }) {
   const email = input.email.toLowerCase().trim();
   const existingUser = await prisma.staffUser.findFirst({
@@ -185,7 +191,7 @@ export async function startSubscriptionCheckout(input: {
     );
   }
 
-  const plan = getSubscriptionPlan();
+  const plan = getSubscriptionPlan(resolveCheckoutPlanCode(input.planCode));
 
   if (isComplimentarySignupEmail(email)) {
     const subscription =
@@ -199,6 +205,8 @@ export async function startSubscriptionCheckout(input: {
               provider: null,
               externalId: `complimentary_${randomBytes(8).toString("hex")}`,
               amountCents: 0,
+              planCode: plan.code,
+              planName: plan.name,
               checkoutUrl: null,
               pixQrCode: null,
               pixCopyPaste: null,
@@ -237,7 +245,16 @@ export async function startSubscriptionCheckout(input: {
 
   const subscription =
     open?.status === SoftwareSubscriptionStatus.pending_payment
-      ? open
+      ? await prisma.softwareSubscription.update({
+          where: { id: open.id },
+          data: {
+            planCode: plan.code,
+            planName: plan.name,
+            amountCents: plan.amountCents,
+            method: "card",
+            provider: OnlineProvider.mercado_pago,
+          },
+        })
       : await prisma.softwareSubscription.create({
           data: {
             email,
@@ -258,6 +275,7 @@ export async function startSubscriptionCheckout(input: {
       email,
       amountCents: subscription.amountCents,
       planName: plan.name,
+      planCode: plan.code,
       backUrl: `${env().WEB_BASE_URL.replace(/\/$/, "")}/assine?paid=${subscription.id}`,
     });
   } catch (err) {
@@ -573,7 +591,37 @@ export type ClinicBillingInfo = {
   cancelAtPeriodEnd: boolean;
   complimentary: boolean;
   hasSubscription: boolean;
+  planCode: string | null;
+  planName: string | null;
+  maxProfessionals: number;
+  professionalsUsed: number;
+  canAddProfessional: boolean;
 };
+
+export async function countActiveProfessionals(clinicId: string) {
+  return prisma.professional.count({
+    where: { clinicId, active: true },
+  });
+}
+
+export async function assertCanAddProfessional(clinicId: string) {
+  const sub = await prisma.softwareSubscription.findFirst({
+    where: { clinicId },
+  });
+  const planCode = sub?.planCode ?? getSoloPlan().code;
+  const max = maxProfessionalsForPlanCode(planCode);
+  const used = await countActiveProfessionals(clinicId);
+  if (used >= max) {
+    const team = getTeamPlan();
+    throw new SubscriptionError(
+      max <= 1
+        ? `Plano Individual permite 1 profissional. Faça upgrade para ${team.name} (R$ ${(team.amountCents / 100).toFixed(2).replace(".", ",")} /mês) para incluir a equipe.`
+        : `Limite do plano atingido (${used}/${max} profissionais).`,
+      422,
+    );
+  }
+  return { max, used, planCode };
+}
 
 export async function getClinicBillingInfo(
   clinicId: string,
@@ -581,7 +629,10 @@ export async function getClinicBillingInfo(
   const sub = await prisma.softwareSubscription.findFirst({
     where: { clinicId },
   });
+  const professionalsUsed = await countActiveProfessionals(clinicId);
+
   if (!sub) {
+    const max = getSoloPlan().maxProfessionals;
     return {
       billingStatus: "none",
       billingBlocked: false,
@@ -589,6 +640,11 @@ export async function getClinicBillingInfo(
       cancelAtPeriodEnd: false,
       complimentary: false,
       hasSubscription: false,
+      planCode: null,
+      planName: null,
+      maxProfessionals: max,
+      professionalsUsed,
+      canAddProfessional: professionalsUsed < max,
     };
   }
 
@@ -606,6 +662,8 @@ export async function getClinicBillingInfo(
     }
   }
 
+  const maxProfessionals = maxProfessionalsForPlanCode(sub.planCode);
+
   return {
     billingStatus: sub.billingStatus,
     billingBlocked,
@@ -613,6 +671,11 @@ export async function getClinicBillingInfo(
     cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
     complimentary,
     hasSubscription: true,
+    planCode: sub.planCode,
+    planName: sub.planName,
+    maxProfessionals,
+    professionalsUsed,
+    canAddProfessional: professionalsUsed < maxProfessionals,
   };
 }
 

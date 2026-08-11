@@ -91,10 +91,12 @@ export async function inviteStaff(input: {
     throw new StaffError("Este e-mail já está em uso em outra clínica", 409);
   }
 
-  if (input.professionalId) {
+  let professionalId = input.professionalId ?? null;
+
+  if (professionalId) {
     const pro = await prisma.professional.findFirst({
       where: {
-        id: input.professionalId,
+        id: professionalId,
         clinicId: input.clinicId,
         active: true,
       },
@@ -102,13 +104,34 @@ export async function inviteStaff(input: {
     if (!pro) throw new StaffError("Profissional não encontrado", 404);
     const taken = await prisma.staffUser.findFirst({
       where: {
-        professionalId: input.professionalId,
+        professionalId,
         NOT: { email },
       },
     });
     if (taken) {
       throw new StaffError("Profissional já vinculado a outro usuário", 409);
     }
+  } else if (input.role === "professional") {
+    // Solo-first: convidar profissional cria o perfil de agenda e consome assento
+    const { assertCanAddProfessional, SubscriptionError } = await import(
+      "./subscriptions.js"
+    );
+    try {
+      await assertCanAddProfessional(input.clinicId);
+    } catch (err) {
+      if (err instanceof SubscriptionError) {
+        throw new StaffError(err.message, err.statusCode);
+      }
+      throw err;
+    }
+    const { createClinicProfessional } = await import(
+      "./owner-professional.js"
+    );
+    const created = await createClinicProfessional({
+      clinicId: input.clinicId,
+      name,
+    });
+    professionalId = created.id;
   }
 
   const token = randomBytes(32).toString("hex");
@@ -131,7 +154,7 @@ export async function inviteStaff(input: {
       data: {
         name,
         role: input.role,
-        professionalId: input.professionalId ?? null,
+        professionalId,
         active: false,
         passwordHash: placeholderHash,
         passwordSetAt: null,
@@ -152,7 +175,7 @@ export async function inviteStaff(input: {
         email,
         name,
         role: input.role,
-        professionalId: input.professionalId ?? null,
+        professionalId,
         passwordHash: placeholderHash,
         active: false,
         passwordSetAt: null,
@@ -276,7 +299,7 @@ export async function changePassword(input: {
     throw new StaffError("Usuário não encontrado", 404);
   }
   if (!(await bcrypt.compare(input.currentPassword, user.passwordHash))) {
-    throw new StaffError("Senha atual incorreta", 401);
+    throw new StaffError("Senha atual incorreta", 403);
   }
   await prisma.staffUser.update({
     where: { id: user.id },

@@ -5,9 +5,12 @@ import {
   FileText,
   GitCommitHorizontal,
   Paperclip,
+  Pause,
   Pencil,
+  Play,
   Upload,
   User,
+  UserX,
 } from "lucide-react";
 import { api } from "../api/client";
 import type { PatientDetail, PatientDocument } from "../api/types";
@@ -83,6 +86,7 @@ export function PatientDetailPage() {
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [lifecycleBusy, setLifecycleBusy] = useState(false);
 
   async function load() {
     const detail = await api.patientDetail(id);
@@ -105,6 +109,19 @@ export function PatientDetailPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  async function onLifecycle(patch: { active?: boolean; billingPaused?: boolean }) {
+    setLifecycleBusy(true);
+    setError(null);
+    try {
+      await api.setPatientLifecycle(id, patch);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha ao atualizar status");
+    } finally {
+      setLifecycleBusy(false);
+    }
+  }
 
   async function onUpload(
     file: File | null,
@@ -148,6 +165,52 @@ export function PatientDetailPage() {
         <Link to={`/agendar`} className="btn teal">
           Agendar sessão
         </Link>
+        {data?.billingPaused ? (
+          <button
+            type="button"
+            className="btn ghost"
+            disabled={lifecycleBusy}
+            onClick={() => void onLifecycle({ billingPaused: false })}
+          >
+            <Play size={15} /> Retomar cobranças
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="btn ghost"
+            disabled={lifecycleBusy || data?.active === false}
+            onClick={() => void onLifecycle({ billingPaused: true })}
+          >
+            <Pause size={15} /> Pausar cobranças
+          </button>
+        )}
+        {data?.active ? (
+          <button
+            type="button"
+            className="btn ghost"
+            disabled={lifecycleBusy}
+            onClick={() => {
+              if (
+                window.confirm(
+                  "Inativar este paciente? Novos agendamentos e cobranças automáticas serão bloqueados.",
+                )
+              ) {
+                void onLifecycle({ active: false });
+              }
+            }}
+          >
+            <UserX size={15} /> Inativar
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="btn ghost"
+            disabled={lifecycleBusy}
+            onClick={() => void onLifecycle({ active: true })}
+          >
+            <Play size={15} /> Reativar
+          </button>
+        )}
       </div>
 
       {error ? <p className="banner err">{error}</p> : null}
@@ -177,9 +240,22 @@ export function PatientDetailPage() {
             {[data.city, data.state].filter(Boolean).join(" / ") || "Endereço não informado"}
             {data.insuranceName ? ` · Convênio ${data.insuranceName}` : ""}
           </p>
+          <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", marginTop: "0.45rem" }}>
+            <span
+              className={`status-dot ${
+                !data.active ? "warn" : data.billingPaused ? "warn" : "ok"
+              }`}
+            >
+              {!data.active
+                ? "Inativo"
+                : data.billingPaused
+                  ? "Cobranças pausadas"
+                  : "Ativo"}
+            </span>
+          </div>
         </div>
         <label className="btn ghost sm" style={{ marginLeft: "auto" }}>
-          <Upload size={14} /> Foto
+          <Upload size={14} /> Foto do paciente
           <input
             type="file"
             accept="image/jpeg,image/png,image/webp,image/gif"
@@ -305,14 +381,14 @@ export function PatientDetailPage() {
               />
             </label>
             <label className="btn ghost">
-              <Upload size={14} /> Foto / imagem
+              <Upload size={14} /> Foto do paciente
               <input
                 type="file"
                 accept="image/jpeg,image/png,image/webp,image/gif"
                 hidden
                 disabled={uploading}
                 onChange={(e) =>
-                  void onUpload(e.target.files?.[0] ?? null, "photo")
+                  void onUpload(e.target.files?.[0] ?? null, "photo", true)
                 }
               />
             </label>
@@ -320,7 +396,7 @@ export function PatientDetailPage() {
           {uploading ? <p className="muted">Enviando…</p> : null}
           <DocList title="Documentos" items={docs} patientId={id} onChanged={() => void load()} />
           <DocList title="Anexos" items={attachments} patientId={id} onChanged={() => void load()} />
-          <DocList title="Fotos" items={photos} patientId={id} onChanged={() => void load()} />
+          <DocList title="Fotos do paciente" items={photos} patientId={id} onChanged={() => void load()} />
         </div>
       ) : null}
 

@@ -23,7 +23,8 @@ function toAppPath(url: string) {
 
 export function SubscribePage() {
   const [searchParams] = useSearchParams();
-  const [plan, setPlan] = useState<SubscriptionPlan | null>(null);
+  const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
+  const [planCode, setPlanCode] = useState("solo_monthly");
   const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -37,7 +38,12 @@ export function SubscribePage() {
   useEffect(() => {
     void api
       .signupPlan()
-      .then((r) => setPlan(r.plan))
+      .then((r) => {
+        const list =
+          r.plans && r.plans.length > 0 ? r.plans : r.plan ? [r.plan] : [];
+        setPlans(list);
+        if (list[0]) setPlanCode(list[0].code);
+      })
       .catch((err) =>
         setError(err instanceof Error ? err.message : "Falha ao carregar plano"),
       );
@@ -64,6 +70,8 @@ export function SubscribePage() {
     return <Navigate to="/" replace />;
   }
 
+  const selected = plans.find((p) => p.code === planCode) ?? plans[0] ?? null;
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setLoading(true);
@@ -73,6 +81,7 @@ export function SubscribePage() {
       const created = await api.signupCheckout({
         email: email.trim(),
         method: "card",
+        planCode: selected?.code ?? planCode,
       });
       setCheckout(created);
       if (created.complimentary && created.setup) {
@@ -166,7 +175,8 @@ export function SubscribePage() {
         ) : showCheckout ? (
           <div className="signup-checkout">
             <p className="muted">
-              Assinatura para <strong>{checkout.email}</strong>
+              Assinatura <strong>{checkout.planName}</strong> para{" "}
+              <strong>{checkout.email}</strong>
             </p>
             <p className="signup-amount">
               {formatMoney(checkout.amountCents)}
@@ -206,23 +216,44 @@ export function SubscribePage() {
             </button>
           </div>
         ) : (
-          <form onSubmit={onSubmit}>
-            {plan ? (
-              <div className="signup-plan">
-                <div>
-                  <strong>{plan.name}</strong>
-                  <p>{plan.description}</p>
-                  <p className="muted login-hint">
-                    Renovação automática mensal via Mercado Pago (cartão).
-                  </p>
-                </div>
-                <div className="signup-plan-price">
-                  <span>{formatMoney(plan.amountCents)}</span>
-                  <small>/ mês</small>
-                </div>
+          <form onSubmit={(e) => void onSubmit(e)}>
+            {plans.length > 0 ? (
+              <div className="signup-plan-picker" role="radiogroup" aria-label="Plano">
+                {plans.map((p) => {
+                  const active = p.code === (selected?.code ?? planCode);
+                  return (
+                    <button
+                      key={p.code}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      className={`signup-plan ${active ? "selected" : ""}`}
+                      onClick={() => setPlanCode(p.code)}
+                    >
+                      <div>
+                        <strong>{p.name}</strong>
+                        <p>{p.description}</p>
+                        {p.maxProfessionals != null ? (
+                          <p className="muted login-hint">
+                            {p.maxProfessionals === 1
+                              ? "1 profissional (você)"
+                              : `Até ${p.maxProfessionals} profissionais`}
+                          </p>
+                        ) : null}
+                      </div>
+                      <div className="signup-plan-price">
+                        <span>{formatMoney(p.amountCents)}</span>
+                        <small>/ mês</small>
+                      </div>
+                    </button>
+                  );
+                })}
+                <p className="muted login-hint" style={{ margin: 0 }}>
+                  Renovação automática mensal via Mercado Pago (cartão).
+                </p>
               </div>
             ) : (
-              <p className="muted">Carregando plano…</p>
+              <p className="muted">Carregando planos…</p>
             )}
 
             <label className="field-block">
@@ -240,9 +271,11 @@ export function SubscribePage() {
             <button
               type="submit"
               className="btn teal block"
-              disabled={loading || !plan}
+              disabled={loading || !selected}
             >
-              {loading ? "Abrindo Mercado Pago…" : "Assinar com Mercado Pago"}
+              {loading
+                ? "Abrindo Mercado Pago…"
+                : `Assinar ${selected?.name ?? ""}`}
             </button>
           </form>
         )}

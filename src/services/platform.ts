@@ -88,7 +88,8 @@ export async function getPlatformOverview() {
       subscriptionsPastDue: pastDue,
       sessionPaymentsThisMonth: paymentsPaidMonth._count._all,
       sessionRevenueCentsThisMonth: paymentsPaidMonth._sum.amountCents ?? 0,
-      planAmountCents: env().SUBSCRIPTION_AMOUNT_CENTS,
+      planAmountCents: env().SUBSCRIPTION_SOLO_AMOUNT_CENTS,
+      teamPlanAmountCents: env().SUBSCRIPTION_TEAM_AMOUNT_CENTS,
     },
     clinics: clinics.map((c) => ({
       id: c.id,

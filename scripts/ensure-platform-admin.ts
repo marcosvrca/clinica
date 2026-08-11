@@ -22,6 +22,11 @@ const EMAIL =
 const PASSWORD = process.env.SEED_PLATFORM_PASSWORD?.trim();
 const NAME = process.env.SEED_PLATFORM_NAME?.trim() || "Marcos Vinicius";
 
+const DEFAULT_HOURS = [1, 2, 3, 4, 5].flatMap((weekday) => [
+  { weekday, startMinute: 8 * 60, endMinute: 12 * 60 },
+  { weekday, startMinute: 14 * 60, endMinute: 18 * 60 },
+]);
+
 async function main() {
   if (!PASSWORD || PASSWORD.length < 8) {
     throw new Error(
@@ -30,9 +35,9 @@ async function main() {
   }
 
   const plan = {
-    code: env().SUBSCRIPTION_PLAN_CODE,
-    name: env().SUBSCRIPTION_PLAN_NAME,
-    amountCents: env().SUBSCRIPTION_AMOUNT_CENTS,
+    code: "solo_monthly",
+    name: env().SUBSCRIPTION_SOLO_PLAN_NAME,
+    amountCents: env().SUBSCRIPTION_SOLO_AMOUNT_CENTS,
   };
 
   const clinic = await prisma.clinic.upsert({
@@ -46,6 +51,28 @@ async function main() {
     update: { active: true, name: "Operações Bem Estar" },
   });
 
+  let professional = await prisma.professional.findFirst({
+    where: { clinicId: clinic.id, active: true },
+    orderBy: { createdAt: "asc" },
+  });
+  if (!professional) {
+    professional = await prisma.professional.create({
+      data: {
+        clinicId: clinic.id,
+        name: NAME,
+        specialty: "Plataforma",
+        color: "#0f766e",
+        active: true,
+      },
+    });
+    await prisma.weeklyHour.createMany({
+      data: DEFAULT_HOURS.map((h) => ({
+        ...h,
+        professionalId: professional!.id,
+      })),
+    });
+  }
+
   const passwordHash = await bcrypt.hash(PASSWORD, 10);
 
   const existing = await prisma.staffUser.findFirst({
@@ -58,6 +85,7 @@ async function main() {
       where: { id: existing.id },
       data: {
         clinicId: clinic.id,
+        professionalId: existing.professionalId ?? professional.id,
         name: NAME,
         passwordHash,
         role: "admin",
@@ -73,6 +101,7 @@ async function main() {
     user = await prisma.staffUser.create({
       data: {
         clinicId: clinic.id,
+        professionalId: professional.id,
         email: EMAIL,
         name: NAME,
         passwordHash,
@@ -124,6 +153,7 @@ async function main() {
   console.info("[platform-admin] OK");
   console.info(`  Clínica: ${clinic.name} (${clinic.id})`);
   console.info(`  Usuário: ${user.email}`);
+  console.info(`  Profissional: ${professional.name} (${professional.id})`);
   console.info(
     `  Inclua ${EMAIL} em PLATFORM_ADMIN_EMAILS e COMPLIMENTARY_SIGNUP_EMAILS`,
   );

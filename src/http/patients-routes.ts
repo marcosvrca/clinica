@@ -12,6 +12,7 @@ import {
   getPatientDocumentFile,
   getPatientPhotoPath,
   savePatientFile,
+  setPatientLifecycle,
   updatePatient,
   type PatientWriteInput,
 } from "../services/patients.js";
@@ -145,6 +146,27 @@ export async function registerPatientRoutes(app: FastifyInstance) {
       const params = z.object({ id: z.string() }).parse(request.params);
       const body = patientBodySchema.parse(request.body);
       return updatePatient(clinicId, params.id, toWriteInput(body));
+    } catch (err) {
+      return sendError(reply, err);
+    }
+  });
+
+  app.patch("/v1/patients/:id/lifecycle", async (request, reply) => {
+    try {
+      const clinicId = await requireClinic(request, reply);
+      if (!clinicId) return;
+      const params = z.object({ id: z.string() }).parse(request.params);
+      const body = z
+        .object({
+          active: z.boolean().optional(),
+          billingPaused: z.boolean().optional(),
+        })
+        .refine(
+          (b) => b.active !== undefined || b.billingPaused !== undefined,
+          { message: "Informe active e/ou billingPaused" },
+        )
+        .parse(request.body);
+      return setPatientLifecycle(clinicId, params.id, body);
     } catch (err) {
       return sendError(reply, err);
     }

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import type { Professional, Service, Slot } from "../api/types";
 import { formatShortDay, formatTime } from "../lib/dates";
@@ -166,6 +166,21 @@ export function BookPage() {
 
   if (loadingMeta) return <p className="muted">Carregando…</p>;
 
+  if (!loadingMeta && services.length === 0 && !isReschedule) {
+    return (
+      <div className="card pad">
+        <h2 className="card-title">Agendar</h2>
+        <p className="muted" style={{ marginBottom: 12 }}>
+          Não há serviços cadastrados nesta clínica. Cadastre pelo menos um
+          (nome, duração e valor) para liberar a agenda.
+        </p>
+        <Link className="btn primary" to="/servicos">
+          Cadastrar serviços
+        </Link>
+      </div>
+    );
+  }
+
   return (
     <div className="card pad">
       {isReschedule && (
@@ -173,6 +188,7 @@ export function BookPage() {
           Remarcação — escolha o novo horário. O atendimento atual será movido.
         </p>
       )}
+      {error && <p className="banner err">{error}</p>}
       <form className="form-panel" onSubmit={(e) => void onSubmit(e)}>
         {!isReschedule && (
           <label>
@@ -303,8 +319,6 @@ export function BookPage() {
             </label>
           </>
         )}
-
-        {error && <p className="banner err">{error}</p>}
 
         <button type="submit" className="btn teal" disabled={submitting || !selectedSlot}>
           {submitting

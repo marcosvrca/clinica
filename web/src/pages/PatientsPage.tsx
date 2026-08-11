@@ -16,6 +16,7 @@ import { api } from "../api/client";
 import type { Patient, PatientsResponse } from "../api/types";
 import { formatShortDay, formatTime } from "../lib/dates";
 import { avatarColor, initials, planTone } from "../lib/ui";
+import { PatientAvatar } from "../components/PatientAvatar";
 
 export function PatientsPage() {
   const [searchParams] = useSearchParams();
@@ -136,7 +137,8 @@ export function PatientsPage() {
           >
             <option value="todos">Status: Todos</option>
             <option value="ativo">Ativo</option>
-            <option value="pausado">Em pausa</option>
+            <option value="pausado">Cobranças pausadas / em pausa</option>
+            <option value="inativo">Inativo</option>
           </select>
 
           <select
@@ -286,6 +288,12 @@ export function PatientsPage() {
   );
 }
 
+function patientStatusLabel(status: Patient["status"]) {
+  if (status === "ativo") return "Ativo";
+  if (status === "inativo") return "Inativo";
+  return "Em pausa";
+}
+
 function PatientRow({ patient: p }: { patient: Patient }) {
   const name = p.name ?? "Sem nome";
   return (
@@ -295,9 +303,13 @@ function PatientRow({ patient: p }: { patient: Patient }) {
       </td>
       <td>
         <Link to={`/pacientes/${p.id}`} className="person-cell">
-          <div className="avatar sm" style={{ background: avatarColor(name) }}>
-            {initials(p.name, p.phone)}
-          </div>
+          <PatientAvatar
+            patientId={p.id}
+            name={p.name}
+            phone={p.phone}
+            hasPhoto={p.hasPhoto}
+            size="sm"
+          />
           <div>
             <strong>{name}</strong>
             <span className="muted">
@@ -336,7 +348,7 @@ function PatientRow({ patient: p }: { patient: Patient }) {
       </td>
       <td>
         <span className={`status-dot ${p.status === "ativo" ? "ok" : "warn"}`}>
-          {p.status === "ativo" ? "Ativo" : "Em pausa"}
+          {patientStatusLabel(p.status)}
         </span>
       </td>
       <td>
@@ -373,9 +385,13 @@ function PatientCard({ patient: p }: { patient: Patient }) {
   return (
     <article className="patient-card">
       <Link to={`/pacientes/${p.id}`} className="person-cell">
-        <div className="avatar" style={{ background: avatarColor(name) }}>
-          {initials(p.name, p.phone)}
-        </div>
+        <PatientAvatar
+          patientId={p.id}
+          name={p.name}
+          phone={p.phone}
+          hasPhoto={p.hasPhoto}
+          size="md"
+        />
         <div>
           <strong>{name}</strong>
           <span className="muted">{p.phone}</span>
@@ -384,7 +400,7 @@ function PatientCard({ patient: p }: { patient: Patient }) {
       <div className="card-meta">
         <span className={`pill ${planTone(p.plan)}`}>{p.plan}</span>
         <span className={`status-dot ${p.status === "ativo" ? "ok" : "warn"}`}>
-          {p.status === "ativo" ? "Ativo" : "Em pausa"}
+          {patientStatusLabel(p.status)}
         </span>
       </div>
       <div style={{ display: "flex", gap: "0.45rem" }}>

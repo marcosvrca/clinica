@@ -420,6 +420,7 @@ a {
 .avatar.sm { width: 34px; height: 34px; font-size: 0.68rem; }
 .avatar.xs { width: 28px; height: 28px; font-size: 0.62rem; }
 .avatar.lg { width: 3.5rem; height: 3.5rem; font-size: 1rem; }
+.avatar.xl { width: 6.5rem; height: 6.5rem; font-size: 1.25rem; }
 
 .page-area {
   padding: calc(var(--space) * 1) calc(var(--space) * 4) calc(var(--space) * 5);
@@ -1655,6 +1656,23 @@ a {
   border: 1px solid var(--line);
   border-radius: 12px;
   background: color-mix(in srgb, var(--teal, #14b8a6) 8%, transparent);
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.signup-plan-picker {
+  display: grid;
+  gap: 0.65rem;
+  margin-bottom: 1rem;
+}
+
+.signup-plan.selected {
+  border-color: color-mix(in srgb, var(--teal, #14b8a6) 55%, var(--line));
+  background: color-mix(in srgb, var(--teal, #14b8a6) 16%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--teal, #14b8a6) 28%, transparent);
 }
 
 .signup-plan p {
@@ -1855,6 +1873,57 @@ a {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 1rem;
+}
+
+.page-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+.page-title {
+  margin: 0;
+  font-size: 1.45rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.btn-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  align-items: center;
+}
+
+.chk-fieldset {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0.85rem 1rem;
+}
+
+.chk-fieldset legend {
+  padding: 0 0.35rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.chk-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.chk {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 500;
+}
+
+.banner.warn {
+  background: color-mix(in srgb, #f59e0b 12%, transparent);
+  color: #92400e;
+  border: 1px solid color-mix(in srgb, #f59e0b 28%, transparent);
 }
 
 .slot-grid {
@@ -2287,6 +2356,29 @@ a {
   font-size: 0.95rem;
   font-weight: 600;
   color: var(--ink);
+}
+
+.patient-photo-picker {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.patient-photo-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  align-items: flex-start;
+  max-width: 22rem;
+}
+
+.patient-photo-placeholder {
+  display: grid;
+  place-items: center;
+  gap: 0.25rem;
+  color: inherit;
+  font-size: 0.75rem;
 }
 
 .patient-hero {

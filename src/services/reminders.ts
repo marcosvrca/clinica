@@ -305,6 +305,7 @@ export async function schedulePaymentReminder(paymentId: string) {
   });
   if (!payment?.appointmentId || !payment.appointment) return null;
   if (payment.status !== "pending") return null;
+  if (!payment.patient.active || payment.patient.billingPaused) return null;
 
   const existing = await prisma.reminder.findFirst({
     where: {

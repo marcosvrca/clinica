@@ -1,4 +1,5 @@
 import { type FormEvent, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import type {
   ClinicBillingInfo,
@@ -134,6 +135,7 @@ export function SettingsPage() {
       );
       if (res.inviteUrl) setInviteUrlHint(res.inviteUrl);
       await reloadStaff();
+      setBilling(await api.billing());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao convidar");
     } finally {
@@ -188,6 +190,11 @@ export function SettingsPage() {
           A agenda da clínica é a fonte da verdade (sessões e bloqueios). Ajuste
           aqui equipe, senha, lembretes e cobrança — sem conteúdo clínico
           sensível.
+        </p>
+        <p style={{ marginTop: "0.85rem", marginBottom: 0 }}>
+          <Link className="btn ghost sm" to="/servicos">
+            Gerenciar serviços e valores
+          </Link>
         </p>
       </div>
 
@@ -247,6 +254,26 @@ export function SettingsPage() {
             Convide profissionais por e-mail. Eles definem a senha pelo link
             (7 dias).
           </p>
+          {billing ? (
+            <p className="muted" style={{ fontSize: "0.875rem" }}>
+              Plano{" "}
+              <strong>{billing.planName ?? billing.planCode ?? "—"}</strong>
+              {billing.maxProfessionals != null ? (
+                <>
+                  {" "}
+                  · profissionais {billing.professionalsUsed ?? 0}/
+                  {billing.maxProfessionals}
+                </>
+              ) : null}
+              {!billing.canAddProfessional ? (
+                <>
+                  {" "}
+                  · limite atingido. Para equipe, assine o plano Compartilhado
+                  (R$ 69,90).
+                </>
+              ) : null}
+            </p>
+          ) : null}
           <ul className="catalog-list">
             {staff.length === 0 ? (
               <li className="muted">Nenhum usuário listado.</li>
@@ -318,12 +345,12 @@ export function SettingsPage() {
               </select>
             </label>
             <label className="field-block">
-              <span>Vincular profissional (opcional)</span>
+              <span>Vincular profissional existente (opcional)</span>
               <select
                 value={inviteProfessionalId}
                 onChange={(e) => setInviteProfessionalId(e.target.value)}
               >
-                <option value="">—</option>
+                <option value="">Criar novo perfil de agenda</option>
                 {professionals.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
@@ -334,11 +361,24 @@ export function SettingsPage() {
             <button
               type="submit"
               className="btn teal"
-              disabled={inviting}
+              disabled={
+                inviting ||
+                (inviteRole === "professional" &&
+                  !inviteProfessionalId &&
+                  billing?.canAddProfessional === false)
+              }
               style={{ justifySelf: "start" }}
             >
               {inviting ? "Convidando…" : "Enviar convite"}
             </button>
+            {inviteRole === "professional" &&
+            !inviteProfessionalId &&
+            billing?.canAddProfessional === false ? (
+              <p className="banner warn" style={{ margin: 0 }}>
+                Plano Individual permite 1 profissional. Faça upgrade para
+                Compartilhado (R$ 69,90) para incluir a equipe.
+              </p>
+            ) : null}
           </form>
           {inviteUrlHint ? (
             <p
@@ -352,16 +392,31 @@ export function SettingsPage() {
         </div>
       ) : null}
 
-      {billing?.hasSubscription && !billing.complimentary ? (
+      {billing?.hasSubscription ? (
         <div className="card pad">
           <h3 className="card-title sm">Assinatura do painel</h3>
           <p className="muted" style={{ fontSize: "0.875rem", marginTop: 0 }}>
+            Plano: <strong>{billing.planName ?? billing.planCode ?? "—"}</strong>
+            {billing.maxProfessionals != null
+              ? ` · ${billing.professionalsUsed ?? 0}/${billing.maxProfessionals} profissionais`
+              : ""}
+            <br />
             Status: <strong>{billing.billingStatus}</strong>
+            {billing.complimentary ? " · cortesia" : ""}
             {billing.currentPeriodEnd
               ? ` · vigência até ${formatShortDay(billing.currentPeriodEnd)}`
               : ""}
           </p>
+          {!billing.canAddProfessional &&
+          (billing.maxProfessionals ?? 1) <= 1 ? (
+            <p className="muted" style={{ fontSize: "0.875rem" }}>
+              Para incluir mais profissionais, assine o plano Compartilhado
+              (R$ 69,90/mês) — upgrade pago em breve; por enquanto o limite
+              bloqueia novos assentos.
+            </p>
+          ) : null}
           {stored?.role === "admin" &&
+          !billing.complimentary &&
           billing.billingStatus !== "cancelled" ? (
             <button
               type="button"

@@ -198,6 +198,11 @@ export function SessionsPage() {
           Serviços e equipe
         </summary>
         <div style={{ marginTop: "0.85rem" }}>
+          <p style={{ marginBottom: "0.75rem" }}>
+            <Link className="btn ghost sm" to="/servicos">
+              Gerenciar serviços
+            </Link>
+          </p>
           <ServicesCatalog />
         </div>
       </details>
@@ -226,6 +231,16 @@ function ServicesCatalog() {
   }, []);
 
   if (error) return <p className="banner err">{error}</p>;
+
+  if (services.length === 0) {
+    return (
+      <p className="muted">
+        Nenhum serviço ativo.{" "}
+        <Link to="/servicos">Cadastre um serviço</Link> para agendar e cobrar
+        sessões.
+      </p>
+    );
+  }
 
   return (
     <div className="dash-mid">

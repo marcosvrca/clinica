@@ -59,9 +59,9 @@ async function main() {
   await wipeAll();
 
   const plan = {
-    code: env().SUBSCRIPTION_PLAN_CODE,
-    name: env().SUBSCRIPTION_PLAN_NAME,
-    amountCents: env().SUBSCRIPTION_AMOUNT_CENTS,
+    code: "solo_monthly",
+    name: "Individual",
+    amountCents: env().SUBSCRIPTION_SOLO_AMOUNT_CENTS,
   };
 
   const clinic = await prisma.clinic.create({
@@ -160,9 +160,25 @@ async function main() {
       },
     });
     const platformHash = await bcrypt.hash(platformPassword, 10);
+    const platformPro = await prisma.professional.create({
+      data: {
+        clinicId: ops.id,
+        name: platformName,
+        specialty: "Plataforma",
+        color: "#0f766e",
+        active: true,
+      },
+    });
+    await prisma.weeklyHour.createMany({
+      data: DEFAULT_HOURS.map((h) => ({
+        ...h,
+        professionalId: platformPro.id,
+      })),
+    });
     await prisma.staffUser.create({
       data: {
         clinicId: ops.id,
+        professionalId: platformPro.id,
         email: platformEmail,
         name: platformName,
         passwordHash: platformHash,

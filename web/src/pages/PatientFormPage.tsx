@@ -1,7 +1,9 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { Camera, Upload } from "lucide-react";
 import { api } from "../api/client";
 import type { PatientDetail, PatientWritePayload } from "../api/types";
+import { avatarColor, initials } from "../lib/ui";
 
 const emptyForm: PatientWritePayload = {
   phone: "",
@@ -86,6 +88,8 @@ export function PatientFormPage() {
   const [loading, setLoading] = useState(isEdit);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -93,6 +97,10 @@ export function PatientFormPage() {
       try {
         const detail = await api.patientDetail(id);
         setForm(fromDetail(detail));
+        if (detail.hasPhoto) {
+          const url = await api.patientPhotoUrl(id);
+          setPhotoPreview(url);
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Erro ao carregar");
       } finally {
@@ -101,8 +109,21 @@ export function PatientFormPage() {
     })();
   }, [id]);
 
+  useEffect(() => {
+    return () => {
+      if (photoPreview?.startsWith("blob:")) URL.revokeObjectURL(photoPreview);
+    };
+  }, [photoPreview]);
+
   function set<K extends keyof PatientWritePayload>(key: K, value: string) {
     setForm((f) => ({ ...f, [key]: value }));
+  }
+
+  function onPickPhoto(file: File | null) {
+    if (!file) return;
+    if (photoPreview?.startsWith("blob:")) URL.revokeObjectURL(photoPreview);
+    setPhotoFile(file);
+    setPhotoPreview(URL.createObjectURL(file));
   }
 
   async function onSubmit(e: FormEvent) {
@@ -115,13 +136,29 @@ export function PatientFormPage() {
         email: form.email || null,
         name: form.name || null,
       };
+      let patientId = id;
       if (isEdit && id) {
         await api.updatePatient(id, payload);
-        navigate(`/pacientes/${id}`);
       } else {
         const created = await api.createPatient(payload);
-        navigate(`/pacientes/${created.id}`);
+        patientId = created.id;
       }
+      if (photoFile && patientId) {
+        try {
+          await api.uploadPatientDocument(patientId, photoFile, {
+            kind: "photo",
+            title: "Foto do paciente",
+            asProfilePhoto: true,
+          });
+        } catch (photoErr) {
+          // Cadastro já salvo — segue para o detalhe e mostra o erro de foto
+          navigate(`/pacientes/${patientId}`);
+          throw photoErr instanceof Error
+            ? photoErr
+            : new Error("Paciente salvo, mas a foto não foi enviada");
+        }
+      }
+      navigate(`/pacientes/${patientId}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao salvar");
     } finally {
@@ -130,6 +167,8 @@ export function PatientFormPage() {
   }
 
   if (loading) return <p className="muted">Carregando cadastro…</p>;
+
+  const previewName = form.name || form.phone || "Paciente";
 
   return (
     <div className="patient-form-page">
@@ -145,6 +184,67 @@ export function PatientFormPage() {
         <h2 className="card-title">
           {isEdit ? "Editar paciente" : "Novo paciente"}
         </h2>
+
+        <section className="patient-photo-section">
+          <h3>Foto do paciente</h3>
+          <div className="patient-photo-picker">
+            <div
+              className="avatar xl"
+              style={{
+                background: photoPreview ? "transparent" : avatarColor(previewName),
+                overflow: "hidden",
+              }}
+            >
+              {photoPreview ? (
+                <img
+                  src={photoPreview}
+                  alt={previewName}
+                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                />
+              ) : (
+                <span className="patient-photo-placeholder">
+                  <Camera size={28} strokeWidth={1.5} />
+                  <span>{initials(form.name, form.phone)}</span>
+                </span>
+              )}
+            </div>
+            <div className="patient-photo-actions">
+              <p className="muted" style={{ margin: 0, fontSize: "0.875rem" }}>
+                JPEG, PNG ou WebP. Aparece na lista e no cadastro do paciente.
+              </p>
+              <label className="btn ghost">
+                <Upload size={15} />
+                {photoPreview ? "Trocar foto" : "Escolher foto"}
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  hidden
+                  onChange={(e) => onPickPhoto(e.target.files?.[0] ?? null)}
+                />
+              </label>
+              {photoFile ? (
+                <button
+                  type="button"
+                  className="btn ghost"
+                  onClick={() => {
+                    if (photoPreview?.startsWith("blob:")) {
+                      URL.revokeObjectURL(photoPreview);
+                    }
+                    setPhotoFile(null);
+                    setPhotoPreview(null);
+                    if (id) {
+                      void api.patientPhotoUrl(id).then((url) => {
+                        if (url) setPhotoPreview(url);
+                      });
+                    }
+                  }}
+                >
+                  Remover seleção
+                </button>
+              ) : null}
+            </div>
+          </div>
+        </section>
 
         <section>
           <h3>Dados pessoais</h3>
@@ -265,7 +365,11 @@ export function PatientFormPage() {
               <input value={form.financialPhone ?? ""} onChange={(e) => set("financialPhone", e.target.value)} />
             </Field>
             <Field label="Relação">
-              <input value={form.financialRelation ?? ""} onChange={(e) => set("financialRelation", e.target.value)} placeholder="Ex.: próprio, cônjuge, responsável" />
+              <input
+                value={form.financialRelation ?? ""}
+                onChange={(e) => set("financialRelation", e.target.value)}
+                placeholder="Ex.: próprio, cônjuge, responsável"
+              />
             </Field>
           </div>
         </section>

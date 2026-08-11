@@ -6,6 +6,15 @@ export type PatientsApi = {
   createPatient: (body: PatientWritePayload) => Promise<PatientDetail>;
   patientDetail: (id: string) => Promise<PatientDetail>;
   updatePatient: (id: string, body: PatientWritePayload) => Promise<PatientDetail>;
+  setPatientLifecycle: (
+    id: string,
+    body: { active?: boolean; billingPaused?: boolean },
+  ) => Promise<{
+    id: string;
+    active: boolean;
+    billingPaused: boolean;
+    status: "ativo" | "pausado" | "inativo";
+  }>;
   patientPrepContext: (
     id: string,
     appointmentId?: string,
@@ -36,6 +45,19 @@ export function createPatientsApi(
     patientDetail: (id) => request<PatientDetail>(`/v1/patients/${id}`),
     updatePatient: (id, body) =>
       request<PatientDetail>(`/v1/patients/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      }),
+    setPatientLifecycle: (
+      id: string,
+      body: { active?: boolean; billingPaused?: boolean },
+    ) =>
+      request<{
+        id: string;
+        active: boolean;
+        billingPaused: boolean;
+        status: "ativo" | "pausado" | "inativo";
+      }>(`/v1/patients/${id}/lifecycle`, {
         method: "PATCH",
         body: JSON.stringify(body),
       }),

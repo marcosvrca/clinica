@@ -297,6 +297,11 @@ model Patient {
   financialPhone    String?
   financialRelation String?
 
+  /// false = paciente inativo (não agenda / some fluxos)
+  active         Boolean @default(true)
+  /// true = não dispara lembretes/cobranças de pagamento
+  billingPaused  Boolean @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -312,6 +317,7 @@ model Patient {
   @@index([phone])
   @@index([clinicId, cpf])
   @@index([clinicId, name])
+  @@index([clinicId, active])
 }
 
 model PatientDocument {

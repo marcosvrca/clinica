@@ -68,9 +68,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const data = (await res.json().catch(() => ({}))) as { error?: string } & T;
 
   if (res.status === 401 && !path.startsWith("/v1/auth/login")) {
-    clearSession();
-    if (!window.location.pathname.startsWith("/login")) {
-      window.location.assign("/login");
+    // Só encerra sessão em falha de autenticação JWT — não em erros de negócio
+    // (ex.: senha atual incorreta em /v1/auth/change-password).
+    const msg = (data.error ?? "").toLowerCase();
+    if (msg === "unauthorized" || msg === "") {
+      clearSession();
+      if (!window.location.pathname.startsWith("/login")) {
+        window.location.assign("/login");
+      }
     }
     throw new ApiError(data.error ?? "unauthorized", 401);
   }
@@ -98,11 +103,14 @@ export const api = {
       body: JSON.stringify({ email, password }),
     }),
   signupPlan: () =>
-    publicRequest<{ plan: SubscriptionPlan }>("/v1/public/signup/plan"),
+    publicRequest<{ plan: SubscriptionPlan; plans?: SubscriptionPlan[] }>(
+      "/v1/public/signup/plan",
+    ),
   signupCheckout: (body: {
     email: string;
     method?: "pix" | "card";
     provider?: OnlineProvider;
+    planCode?: string;
   }) =>
     publicRequest<
       SoftwareSubscription & {
@@ -243,6 +251,7 @@ export const api = {
         sessionPaymentsThisMonth: number;
         sessionRevenueCentsThisMonth: number;
         planAmountCents: number;
+        teamPlanAmountCents?: number;
       };
       clinics: {
         id: string;
@@ -278,7 +287,38 @@ export const api = {
   clinic: () => request<Clinic>("/v1/clinic"),
   dashboard: () => request<DashboardData>("/v1/dashboard"),
   patients: () => request<PatientsResponse>("/v1/patients"),
-  services: () => request<{ items: Service[] }>("/v1/services"),
+  services: (opts?: { includeInactive?: boolean }) =>
+    request<{ items: Service[] }>(
+      `/v1/services${qs({
+        includeInactive: opts?.includeInactive ? "true" : undefined,
+      })}`,
+    ),
+  createService: (body: {
+    name: string;
+    description?: string | null;
+    durationMinutes: number;
+    priceCents?: number | null;
+    professionalIds?: string[];
+  }) =>
+    request<{ item: Service }>("/v1/services", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  updateService: (
+    id: string,
+    body: {
+      name?: string;
+      description?: string | null;
+      durationMinutes?: number;
+      priceCents?: number | null;
+      active?: boolean;
+      professionalIds?: string[];
+    },
+  ) =>
+    request<{ item: Service }>(`/v1/services/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
   professionals: (serviceId?: string) =>
     request<{ items: Professional[] }>(`/v1/professionals${qs({ serviceId })}`),
   availability: (params: {

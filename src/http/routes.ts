@@ -20,6 +20,12 @@ import {
   listServices,
 } from "../services/availability.js";
 import {
+  ClinicServiceError,
+  createClinicService,
+  listClinicServices,
+  updateClinicService,
+} from "../services/clinic-services.js";
+import {
   AppointmentError,
   bookAppointment,
   cancelAppointment,
@@ -238,6 +244,14 @@ export async function registerRoutes(app: FastifyInstance) {
       const plan =
         count >= 12 ? "Anual" : count >= 6 ? "Trimestral" : count >= 2 ? "Mensal" : "Avulso";
 
+      const status = !p.active
+        ? ("inativo" as const)
+        : p.billingPaused
+          ? ("pausado" as const)
+          : recentOrUpcoming
+            ? ("ativo" as const)
+            : ("pausado" as const);
+
       return {
         id: p.id,
         phone: p.phone,
@@ -249,9 +263,11 @@ export async function registerRoutes(app: FastifyInstance) {
         insuranceName: p.insuranceName,
         profession: p.profession,
         hasPhoto: Boolean(p.photoPath),
+        active: p.active,
+        billingPaused: p.billingPaused,
         createdAt: p.createdAt.toISOString(),
         appointmentsCount: count,
-        status: recentOrUpcoming ? "ativo" : "pausado",
+        status,
         plan,
         therapist: therapist
           ? { id: therapist.id, name: therapist.name, tag }
@@ -672,16 +688,155 @@ export async function registerRoutes(app: FastifyInstance) {
   app.get("/v1/services", async (request, reply) => {
     const clinicId = await requireClinic(request, reply);
     if (!clinicId) return;
+    const q = z
+      .object({
+        includeInactive: z
+          .enum(["true", "false", "1", "0"])
+          .optional()
+          .transform((v) => v === "true" || v === "1"),
+      })
+      .parse(request.query);
+    if (q.includeInactive) {
+      const items = await listClinicServices(clinicId, { includeInactive: true });
+      return { items };
+    }
     const services = await listServices(clinicId);
     return { items: services };
+  });
+
+  app.post("/v1/services", async (request, reply) => {
+    try {
+      const clinicId = await requireClinic(request, reply);
+      if (!clinicId) return;
+      if (request.auth?.kind === "staff") {
+        const { ensureOwnerProfessional } = await import(
+          "../services/owner-professional.js"
+        );
+        await ensureOwnerProfessional({
+          clinicId,
+          staffUserId: request.auth.userId,
+        });
+      }
+      const body = z
+        .object({
+          name: z.string().min(2).max(120),
+          description: z.string().max(500).optional().nullable(),
+          durationMinutes: z.coerce.number().int().min(15).max(240),
+          priceCents: z.coerce.number().int().min(0).optional().nullable(),
+          professionalIds: z.array(z.string().min(1)).optional(),
+        })
+        .parse(request.body);
+      const item = await createClinicService({
+        clinicId,
+        name: body.name,
+        description: body.description,
+        durationMinutes: body.durationMinutes,
+        priceCents: body.priceCents,
+        professionalIds: body.professionalIds,
+      });
+      return reply.code(201).send({ item });
+    } catch (err) {
+      if (err instanceof ClinicServiceError) {
+        return reply.code(err.statusCode).send({ error: err.message });
+      }
+      throw err;
+    }
+  });
+
+  app.patch("/v1/services/:id", async (request, reply) => {
+    try {
+      const clinicId = await requireClinic(request, reply);
+      if (!clinicId) return;
+      const { id } = z.object({ id: z.string().min(1) }).parse(request.params);
+      const body = z
+        .object({
+          name: z.string().min(2).max(120).optional(),
+          description: z.string().max(500).optional().nullable(),
+          durationMinutes: z.coerce.number().int().min(15).max(240).optional(),
+          priceCents: z.coerce.number().int().min(0).optional().nullable(),
+          active: z.boolean().optional(),
+          professionalIds: z.array(z.string().min(1)).optional(),
+        })
+        .parse(request.body);
+      const item = await updateClinicService({
+        clinicId,
+        serviceId: id,
+        ...body,
+      });
+      return { item };
+    } catch (err) {
+      if (err instanceof ClinicServiceError) {
+        return reply.code(err.statusCode).send({ error: err.message });
+      }
+      throw err;
+    }
   });
 
   app.get("/v1/professionals", async (request, reply) => {
     const clinicId = await requireClinic(request, reply);
     if (!clinicId) return;
+    if (request.auth?.kind === "staff") {
+      const { ensureOwnerProfessional } = await import(
+        "../services/owner-professional.js"
+      );
+      await ensureOwnerProfessional({
+        clinicId,
+        staffUserId: request.auth.userId,
+      });
+    }
     const q = z.object({ serviceId: z.string().optional() }).parse(request.query);
     const items = await listProfessionals(clinicId, q.serviceId);
     return { items };
+  });
+
+  app.post("/v1/professionals", async (request, reply) => {
+    try {
+      const clinicId = await requireClinic(request, reply);
+      if (!clinicId) return;
+      if (request.auth?.kind !== "staff" || request.auth.role !== "admin") {
+        return reply
+          .code(403)
+          .send({ error: "Somente administradores podem cadastrar profissionais" });
+      }
+      const body = z
+        .object({
+          name: z.string().min(2).max(120),
+          specialty: z.string().max(80).optional(),
+          crp: z.string().max(40).optional().nullable(),
+          color: z.string().max(20).optional(),
+        })
+        .parse(request.body);
+      const { assertCanAddProfessional, SubscriptionError } = await import(
+        "../services/subscriptions.js"
+      );
+      try {
+        await assertCanAddProfessional(clinicId);
+      } catch (err) {
+        if (err instanceof SubscriptionError) {
+          return reply.code(err.statusCode).send({ error: err.message });
+        }
+        throw err;
+      }
+      const { createClinicProfessional } = await import(
+        "../services/owner-professional.js"
+      );
+      const item = await createClinicProfessional({
+        clinicId,
+        name: body.name,
+        specialty: body.specialty,
+        crp: body.crp,
+        color: body.color,
+      });
+      return reply.code(201).send({ item });
+    } catch (err) {
+      const status = (err as { statusCode?: number }).statusCode;
+      if (status) {
+        return reply
+          .code(status)
+          .send({ error: err instanceof Error ? err.message : "erro" });
+      }
+      throw err;
+    }
   });
 
   app.get("/v1/availability", async (request, reply) => {
