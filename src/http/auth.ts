@@ -176,6 +176,7 @@ export async function registerAuthRoutes(app: FastifyInstance) {
       where: {
         email: body.email.toLowerCase().trim(),
         active: true,
+        passwordSetAt: { not: null },
         clinic: { active: true },
       },
       include: { professional: true, clinic: true },

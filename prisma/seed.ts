@@ -302,6 +302,7 @@ async function main() {
       name: "Dra. Ana Carolina",
       passwordHash,
       role: "admin",
+      passwordSetAt: new Date(),
     },
     update: {
       passwordHash,
@@ -309,6 +310,7 @@ async function main() {
       professionalId: ana.id,
       name: "Dra. Ana Carolina",
       role: "admin",
+      passwordSetAt: new Date(),
     },
   });
   await prisma.staffUser.upsert({
@@ -322,12 +324,14 @@ async function main() {
       name: "Dr. Bruno Lima",
       passwordHash,
       role: "professional",
+      passwordSetAt: new Date(),
     },
     update: {
       passwordHash,
       active: true,
       professionalId: bruno.id,
       name: "Dr. Bruno Lima",
+      passwordSetAt: new Date(),
     },
   });
 

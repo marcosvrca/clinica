@@ -14,6 +14,7 @@ import { authenticateRequest } from "./http/auth.js";
 import { registerRoutes } from "./http/routes.js";
 import { registerPatientRoutes } from "./http/patients-routes.js";
 import { registerSignupRoutes } from "./http/signup-routes.js";
+import { registerStaffRoutes } from "./http/staff-routes.js";
 import { getClinicBillingInfo } from "./services/subscriptions.js";
 
 async function main() {
@@ -145,6 +146,7 @@ async function main() {
   await registerRoutes(app);
   await registerPatientRoutes(app);
   await registerSignupRoutes(app);
+  await registerStaffRoutes(app);
 
   if (serveSpa) {
     await app.register(fastifyStatic, {

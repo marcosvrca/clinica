@@ -84,6 +84,8 @@ export function LoginPage() {
         </button>
 
         <p className="muted login-hint">
+          <Link to="/recuperar-senha">Esqueci a senha</Link>
+          {" · "}
           Ainda não tem uma conta? <Link to="/assine">Registre-se</Link>
         </p>
 

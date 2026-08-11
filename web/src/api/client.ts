@@ -26,6 +26,7 @@ import type {
   Service,
   Slot,
   AuthUser,
+  StaffMember,
   SoftwareSubscription,
   SubscriptionPlan,
 } from "./types";
@@ -157,6 +158,76 @@ export const api = {
     }>("/v1/public/signup/complete", {
       method: "POST",
       body: JSON.stringify(body),
+    }),
+  staffInviteContext: (token: string) =>
+    publicRequest<{
+      email: string;
+      name: string;
+      clinicName: string;
+      role: "admin" | "professional";
+      expiresAt: string;
+    }>(`/v1/public/staff/invite${qs({ token })}`),
+  staffAcceptInvite: (body: {
+    token: string;
+    password: string;
+    name?: string;
+  }) =>
+    publicRequest<{
+      user: {
+        id: string;
+        email: string;
+        name: string;
+        role: "admin" | "professional";
+        clinic: { id: string; name: string };
+      };
+    }>("/v1/public/staff/invite/accept", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  forgotPassword: (email: string) =>
+    publicRequest<{ ok: true; resetUrl?: string }>(
+      "/v1/public/staff/forgot-password",
+      {
+        method: "POST",
+        body: JSON.stringify({ email }),
+      },
+    ),
+  resetPasswordContext: (token: string) =>
+    publicRequest<{
+      email: string;
+      clinicName: string;
+      expiresAt: string;
+    }>(`/v1/public/staff/reset${qs({ token })}`),
+  resetPassword: (body: { token: string; password: string }) =>
+    publicRequest<{ ok: true }>("/v1/public/staff/reset", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  staffList: () => request<{ items: StaffMember[] }>("/v1/staff"),
+  staffInvite: (body: {
+    email: string;
+    name: string;
+    role: "admin" | "professional";
+    professionalId?: string | null;
+  }) =>
+    request<{
+      user: StaffMember;
+      inviteUrl: string | null;
+      emailSkipped: boolean;
+      emailSkipReason: string | null;
+    }>("/v1/staff/invite", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  staffSetActive: (id: string, active: boolean) =>
+    request<StaffMember>(`/v1/staff/${id}/active`, {
+      method: "PATCH",
+      body: JSON.stringify({ active }),
+    }),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    request<{ ok: true }>("/v1/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify({ currentPassword, newPassword }),
     }),
   me: () => request<AuthUser>("/v1/auth/me"),
   billing: () =>

@@ -8,6 +8,19 @@ export type AuthUser = {
   billing?: ClinicBillingInfo;
 };
 
+export type StaffMember = {
+  id: string;
+  email: string;
+  name: string;
+  role: "admin" | "professional";
+  active: boolean;
+  pendingInvite: boolean;
+  inviteExpiresAt: string | null;
+  professionalId: string | null;
+  professional: { id: string; name: string } | null;
+  createdAt: string;
+};
+
 export type ClinicBillingInfo = {
   billingStatus: "none" | "active" | "past_due" | "cancelled";
   billingBlocked: boolean;

@@ -144,16 +144,22 @@ model Professional {
 }
 
 model StaffUser {
-  id             String   @id @default(cuid())
-  clinicId       String
-  professionalId String?  @unique
-  email          String
-  name           String
-  passwordHash   String
-  role           StaffRole @default(professional)
-  active         Boolean  @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id                   String    @id @default(cuid())
+  clinicId             String
+  professionalId       String?   @unique
+  email                String
+  name                 String
+  passwordHash         String
+  role                 StaffRole @default(professional)
+  active               Boolean   @default(true)
+  /// null = convite pendente (ainda não definiu senha)
+  passwordSetAt         DateTime?
+  inviteTokenHash      String?
+  inviteTokenExpiresAt DateTime?
+  resetTokenHash       String?
+  resetTokenExpiresAt  DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
   clinic       Clinic        @relation(fields: [clinicId], references: [id], onDelete: Cascade)
   professional Professional? @relation(fields: [professionalId], references: [id], onDelete: SetNull)
@@ -161,6 +167,8 @@ model StaffUser {
   @@unique([clinicId, email])
   @@index([clinicId, active])
   @@index([email])
+  @@index([inviteTokenHash])
+  @@index([resetTokenHash])
 }
 
 /// Checkout de assinatura do painel (antes de existir clínica/usuário).

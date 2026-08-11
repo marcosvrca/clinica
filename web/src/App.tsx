@@ -10,6 +10,9 @@ import { RecordsPage } from "./pages/RecordsPage";
 import { LoginPage } from "./pages/LoginPage";
 import { SubscribePage } from "./pages/SubscribePage";
 import { CompleteSignupPage } from "./pages/CompleteSignupPage";
+import { AcceptInvitePage } from "./pages/AcceptInvitePage";
+import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
+import { ResetPasswordPage } from "./pages/ResetPasswordPage";
 import {
   FinancePage,
   ReportsPage,
@@ -39,6 +42,9 @@ export default function App() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/assine" element={<SubscribePage />} />
         <Route path="/cadastro" element={<CompleteSignupPage />} />
+        <Route path="/convite" element={<AcceptInvitePage />} />
+        <Route path="/recuperar-senha" element={<ForgotPasswordPage />} />
+        <Route path="/redefinir-senha" element={<ResetPasswordPage />} />
         <Route element={<RequireAuth />}>
           <Route element={<Layout />}>
             <Route index element={<DashboardPage />} />

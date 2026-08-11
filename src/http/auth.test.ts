@@ -19,10 +19,19 @@ describe("auth public paths", () => {
     expect(isPublicPath("/v1/public/signup/setup")).toBe(true);
   });
 
+  it("libera convite e recuperação de senha", () => {
+    expect(isPublicPath("/v1/public/staff/invite")).toBe(true);
+    expect(isPublicPath("/v1/public/staff/invite/accept")).toBe(true);
+    expect(isPublicPath("/v1/public/staff/forgot-password")).toBe(true);
+    expect(isPublicPath("/v1/public/staff/reset")).toBe(true);
+  });
+
   it("protege rotas clínicas", () => {
     expect(isPublicPath("/v1/patients")).toBe(false);
     expect(isPublicPath("/v1/clinical-records")).toBe(false);
     expect(isPublicPath("/v1/auth/me")).toBe(false);
+    expect(isPublicPath("/v1/staff")).toBe(false);
+    expect(isPublicPath("/v1/auth/change-password")).toBe(false);
   });
 
   it("libera SPA e assets estáticos", () => {

@@ -794,6 +794,7 @@ export async function completeSubscriptionSignup(input: {
         passwordHash,
         role: StaffRole.admin,
         active: true,
+        passwordSetAt: new Date(),
       },
     });
 
