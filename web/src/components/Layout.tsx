@@ -1,7 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
-  Brain,
   CalendarDays,
   ClipboardList,
   FileText,
@@ -26,7 +25,7 @@ type ShellCtx = {
 };
 
 const ShellContext = createContext<ShellCtx>({
-  clinicName: "Clínica Bem Estar",
+  clinicName: "mvFlow Psi",
   professionalName: "Dra. Ana Carolina",
   specialty: "Psicóloga",
 });
@@ -115,7 +114,7 @@ export function Layout() {
   const location = useLocation();
   const navigate = useNavigate();
   const stored = getStoredUser();
-  const [clinicName, setClinicName] = useState(stored?.clinic.name ?? "Bem Estar");
+  const [clinicName, setClinicName] = useState(stored?.clinic.name ?? "mvFlow Psi");
   const [professionalName, setProfessionalName] = useState(
     stored?.name ?? "Profissional",
   );
@@ -207,11 +206,11 @@ export function Layout() {
         <aside className="sidebar">
           <div className="brand">
             <div className="brand-icon" aria-hidden>
-              <Brain size={20} strokeWidth={1.75} />
+              <img src="/favicon.svg" alt="" width={36} height={36} />
             </div>
             <div>
-              <p className="brand-title">Bem Estar</p>
-              <p className="brand-sub">Clínica</p>
+              <p className="brand-title">mvFlow</p>
+              <p className="brand-sub">Psi</p>
             </div>
           </div>
 

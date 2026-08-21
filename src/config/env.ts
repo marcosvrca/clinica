@@ -31,7 +31,7 @@ const envSchema = z.object({
     .transform((v) => v === "true"),
   /** Resend — envio de e-mail */
   RESEND_API_KEY: z.string().optional().default(""),
-  RESEND_FROM: z.string().default("Clínica Bem Estar <onboarding@resend.dev>"),
+  RESEND_FROM: z.string().default("mvFlow Psi <onboarding@resend.dev>"),
   /** Base pública para links Confirmar / Remarcar (API). */
   PUBLIC_BASE_URL: z.string().default("http://localhost:4000"),
   /** URL do painel (página de remarcar). */

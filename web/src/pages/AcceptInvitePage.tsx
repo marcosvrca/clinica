@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useState } from "react";
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
-import { Brain } from "lucide-react";
+import { BrandLockup } from "../components/BrandLockup";
 import { api, ApiError } from "../api/client";
 import { getToken, setSession } from "../lib/auth";
 
@@ -78,15 +78,7 @@ export function AcceptInvitePage() {
   return (
     <div className="login-page">
       <div className="login-card signup-card">
-        <div className="login-brand">
-          <div className="brand-icon" aria-hidden>
-            <Brain size={22} strokeWidth={1.75} />
-          </div>
-          <div>
-            <h1>Bem Estar</h1>
-            <p>Aceitar convite</p>
-          </div>
-        </div>
+        <BrandLockup subtitle="Aceitar convite" />
 
         {loadError ? (
           <p className="banner err">{loadError}</p>

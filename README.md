@@ -1,6 +1,7 @@
-# Clínica de Psicologia — API + Painel Web
+# mvFlow Psi — API + Painel Web
 
-Sistema de agenda da **Clínica Bem Estar**, integrado com o bot WhatsApp em `../bot` e com painel web para a equipe. Em produção (Railway) a API e o painel rodam no **mesmo domínio**.
+Sistema de agenda da **mvFlow Psi**, integrado com o bot WhatsApp em `../bot` e com painel web para a equipe. Em produção (Railway) a API e o painel rodam no **mesmo domínio**.
+A linha de produto pode evoluir para **mvFlow Fisio**, **mvFlow Nutri** e **mvFlow Clínicas**.
 
 ## O que faz
 

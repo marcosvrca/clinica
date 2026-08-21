@@ -1,6 +1,6 @@
 import { type FormEvent, useState } from "react";
 import { Link, Navigate } from "react-router-dom";
-import { Brain } from "lucide-react";
+import { BrandLockup } from "../components/BrandLockup";
 import { api, ApiError } from "../api/client";
 import { getToken } from "../lib/auth";
 
@@ -43,15 +43,7 @@ export function ForgotPasswordPage() {
   return (
     <div className="login-page">
       <form className="login-card" onSubmit={onSubmit}>
-        <div className="login-brand">
-          <div className="brand-icon" aria-hidden>
-            <Brain size={22} strokeWidth={1.75} />
-          </div>
-          <div>
-            <h1>Bem Estar</h1>
-            <p>Recuperar senha</p>
-          </div>
-        </div>
+        <BrandLockup subtitle="Recuperar senha" />
 
         {error ? <p className="banner err">{error}</p> : null}
         {info ? <p className="banner ok">{info}</p> : null}

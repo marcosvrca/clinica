@@ -160,7 +160,7 @@ async function main() {
   if (platformPassword && platformPassword.length >= 8) {
     const ops = await prisma.clinic.create({
       data: {
-        name: "Operações Bem Estar",
+        name: "Operações mvFlow",
         slug: "plataforma-bem-estar",
         timezone: "America/Sao_Paulo",
         active: true,

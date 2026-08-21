@@ -43,12 +43,12 @@ async function main() {
   const clinic = await prisma.clinic.upsert({
     where: { slug: "plataforma-bem-estar" },
     create: {
-      name: "Operações Bem Estar",
+      name: "Operações mvFlow",
       slug: "plataforma-bem-estar",
       timezone: "America/Sao_Paulo",
       active: true,
     },
-    update: { active: true, name: "Operações Bem Estar" },
+    update: { active: true, name: "Operações mvFlow" },
   });
 
   let professional = await prisma.professional.findFirst({

@@ -107,7 +107,7 @@ function sandboxCheckout(
   const externalId = `sandbox_${provider}_${input.paymentId}_${randomUUID().slice(0, 8)}`;
   const copyPaste = `00020126580014BR.GOV.BCB.PIX0136${input.paymentId}520400005303986540${(
     input.amountCents / 100
-  ).toFixed(2)}5802BR5925Clinica Bem Estar6009SAO PAULO62070503***6304ABCD`;
+  ).toFixed(2)}5802BR5910mvFlow Psi6009SAO PAULO62070503***6304ABCD`;
   return {
     provider,
     externalId,

@@ -90,7 +90,7 @@ Organizar o painel como **sistema de rotina do consultório**, não dashboard ge
 ### Design (inspiração, não cópia)
 
 - Visual calmo, clínico, legível; hierarquia clara; pouco ruído
-- Manter tokens atuais em `web/src/index.css` (teal/azul, Plus Jakarta Sans) como base da marca **Clínica Mente em Equilíbrio / Bem Estar**
+- Manter tokens atuais em `web/src/index.css` (teal/azul, Plus Jakarta Sans) como base da marca **mvFlow Psi** (família futura: Fisio, Nutri, Clínicas)
 - Evitar look genérico “AI purple”; evitar cards demais sem necessidade de interação
 - Calendário: eventos com cor por profissional/tipo (como demos públicas de agenda)
 - Mobile: painel usable no navegador; app paciente = fase futura

@@ -1,6 +1,6 @@
 import { type FormEvent, useState } from "react";
 import { Link, Navigate, useSearchParams } from "react-router-dom";
-import { Brain } from "lucide-react";
+import { BrandLockup } from "../components/BrandLockup";
 import { api } from "../api/client";
 import { getToken, setSession } from "../lib/auth";
 
@@ -40,15 +40,7 @@ export function LoginPage() {
   return (
     <div className="login-page">
       <form className="login-card" onSubmit={onSubmit}>
-        <div className="login-brand">
-          <div className="brand-icon" aria-hidden>
-            <Brain size={22} strokeWidth={1.75} />
-          </div>
-          <div>
-            <h1>Bem Estar</h1>
-            <p>Acesso do profissional</p>
-          </div>
-        </div>
+        <BrandLockup subtitle="Acesso do profissional" />
 
         {error ? <p className="banner err">{error}</p> : null}
 

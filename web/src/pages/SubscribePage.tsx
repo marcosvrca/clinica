@@ -1,6 +1,7 @@
 import { type FormEvent, useEffect, useState } from "react";
 import { Link, Navigate, useSearchParams } from "react-router-dom";
-import { Brain, Check } from "lucide-react";
+import { Check } from "lucide-react";
+import { BrandLockup } from "../components/BrandLockup";
 import { api, ApiError } from "../api/client";
 import type { SoftwareSubscription, SubscriptionPlan } from "../api/types";
 import { getToken } from "../lib/auth";
@@ -137,15 +138,7 @@ export function SubscribePage() {
   return (
     <div className="login-page">
       <div className="login-card signup-card">
-        <div className="login-brand">
-          <div className="brand-icon" aria-hidden>
-            <Brain size={22} strokeWidth={1.75} />
-          </div>
-          <div>
-            <h1>Bem Estar</h1>
-            <p>Assinatura mensal do painel</p>
-          </div>
-        </div>
+        <BrandLockup subtitle="Assinatura mensal do painel" />
 
         {error ? <p className="banner err">{error}</p> : null}
 

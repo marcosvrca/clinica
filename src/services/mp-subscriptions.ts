@@ -145,7 +145,7 @@ export async function createMercadoPagoSubscriptionCheckout(
     method: "POST",
     body: JSON.stringify({
       preapproval_plan_id: planId,
-      reason: `${input.planName} — Bem Estar`,
+      reason: `${input.planName} — mvFlow Psi`,
       external_reference: input.subscriptionId,
       payer_email: input.email,
       back_url: input.backUrl,
