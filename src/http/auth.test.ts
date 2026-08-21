@@ -125,14 +125,22 @@ describe("production guards", () => {
     expect(() => assertProductionReady(base)).not.toThrow();
   });
 
-  it("rejeita secrets de exemplo e CLINIC_ID vazio", () => {
+  it("rejeita secrets de exemplo", () => {
+    expect(() =>
+      assertProductionReady({
+        ...base,
+        CLINIC_API_KEY: "clinic-api-key-change-me-16",
+      }),
+    ).toThrow(/CLINIC_API_KEY/);
+  });
+
+  it("permite CLINIC_ID vazio no boot (primeiro deploy)", () => {
     expect(() =>
       assertProductionReady({
         ...base,
         CLINIC_ID: "",
-        CLINIC_API_KEY: "clinic-api-key-change-me-16",
       }),
-    ).toThrow(/CLINIC_ID|CLINIC_API_KEY/);
+    ).not.toThrow();
   });
 
   it("rejeita webhook secret vazio em production", () => {

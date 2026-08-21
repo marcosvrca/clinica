@@ -31,7 +31,9 @@ export function assertProductionReady(config: Env): void {
   const problems: string[] = [];
 
   if (!config.CLINIC_ID.trim()) {
-    problems.push("CLINIC_ID é obrigatório em production (vincule a clínica do bot/API key)");
+    console.warn(
+      "[production] CLINIC_ID vazio — painel JWT funciona; defina CLINIC_ID após o 1º cadastro para a API key do bot.",
+    );
   }
 
   if (FORBIDDEN_EXAMPLES.includes(config.CLINIC_API_KEY as (typeof FORBIDDEN_EXAMPLES)[number])) {

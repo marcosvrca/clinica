@@ -8,6 +8,9 @@ COPY web/package.json web/package-lock.json ./web/
 RUN npm ci && npm ci --prefix web
 
 FROM deps AS build
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends openssl ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
 COPY . .
 RUN npx prisma generate \
   && npm run build \

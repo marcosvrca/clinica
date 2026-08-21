@@ -183,9 +183,17 @@ function mapAppointment(a: {
 export async function registerRoutes(app: FastifyInstance) {
   await registerAuthRoutes(app);
 
-  app.get("/health", async () => {
-    await prisma.$queryRaw`SELECT 1`;
-    return { status: "ok", service: "clinica-psicologia" };
+  app.get("/health", async (_request, reply) => {
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      return { status: "ok", service: "clinica-psicologia", db: true };
+    } catch {
+      return reply.code(503).send({
+        status: "degraded",
+        service: "clinica-psicologia",
+        db: false,
+      });
+    }
   });
 
   app.get("/v1/clinic", async (request, reply) => {
