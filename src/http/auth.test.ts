@@ -87,15 +87,15 @@ describe("production guards", () => {
     REMINDER_HOURS_BEFORE: 24,
     REMINDER_WHATSAPP_ENABLED: true,
     REMINDER_EMAIL_ENABLED: true,
-    RESEND_API_KEY: "",
+    RESEND_API_KEY: "re_prod_test_key_xxxxxxxx",
     RESEND_FROM: "Clínica <noreply@exemplo.com>",
     PUBLIC_BASE_URL: "https://api.exemplo.com",
     WEB_BASE_URL: "https://app.exemplo.com",
     PAYMENTS_DEFAULT_PROVIDER: "mercado_pago",
-    MERCADOPAGO_ACCESS_TOKEN: "",
+    MERCADOPAGO_ACCESS_TOKEN: "APP_USR-prod-token",
     MERCADOPAGO_PREAPPROVAL_PLAN_ID: "",
-    MERCADOPAGO_PREAPPROVAL_PLAN_ID_SOLO: "",
-    MERCADOPAGO_PREAPPROVAL_PLAN_ID_TEAM: "",
+    MERCADOPAGO_PREAPPROVAL_PLAN_ID_SOLO: "plan_solo_abc",
+    MERCADOPAGO_PREAPPROVAL_PLAN_ID_TEAM: "plan_team_abc",
     STRIPE_SECRET_KEY: "",
     STRIPE_WEBHOOK_SECRET: "",
     ASAAS_API_KEY: "",
@@ -144,6 +144,52 @@ describe("production guards", () => {
     ).toThrow(/PAYMENTS_WEBHOOK_SECRET/);
   });
 
+  it("exige Resend, Mercado Pago e planos em production", () => {
+    expect(() =>
+      assertProductionReady({ ...base, RESEND_API_KEY: "" }),
+    ).toThrow(/RESEND_API_KEY/);
+    expect(() =>
+      assertProductionReady({ ...base, MERCADOPAGO_ACCESS_TOKEN: "" }),
+    ).toThrow(/MERCADOPAGO_ACCESS_TOKEN/);
+    expect(() =>
+      assertProductionReady({
+        ...base,
+        MERCADOPAGO_PREAPPROVAL_PLAN_ID_SOLO: "",
+        MERCADOPAGO_PREAPPROVAL_PLAN_ID: "",
+      }),
+    ).toThrow(/PREAPPROVAL_PLAN_ID_SOLO|PREAPPROVAL_PLAN_ID/);
+    expect(() =>
+      assertProductionReady({
+        ...base,
+        MERCADOPAGO_PREAPPROVAL_PLAN_ID_TEAM: "",
+      }),
+    ).toThrow(/PREAPPROVAL_PLAN_ID_TEAM/);
+  });
+
+  it("rejeita sandbox forçado e FROM de teste", () => {
+    expect(() =>
+      assertProductionReady({
+        ...base,
+        PAYMENTS_ALLOW_SANDBOX: "true",
+      }),
+    ).toThrow(/PAYMENTS_ALLOW_SANDBOX/);
+    expect(() =>
+      assertProductionReady({
+        ...base,
+        RESEND_FROM: "Clínica <onboarding@resend.dev>",
+      }),
+    ).toThrow(/RESEND_FROM|onboarding@resend/);
+  });
+
+  it("rejeita URLs sem HTTPS", () => {
+    expect(() =>
+      assertProductionReady({
+        ...base,
+        PUBLIC_BASE_URL: "http://api.exemplo.com",
+      }),
+    ).toThrow(/HTTPS/);
+  });
+
   it("ignora checagens fora de production", () => {
     expect(() =>
       assertProductionReady({
@@ -152,6 +198,8 @@ describe("production guards", () => {
         CLINIC_ID: "",
         CLINIC_API_KEY: "clinic-api-key-change-me-16",
         PAYMENTS_WEBHOOK_SECRET: "",
+        RESEND_API_KEY: "",
+        MERCADOPAGO_ACCESS_TOKEN: "",
       }),
     ).not.toThrow();
   });

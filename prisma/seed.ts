@@ -14,6 +14,13 @@ import { loadEnv, env } from "../src/config/env.js";
 
 loadEnv();
 
+if (env().NODE_ENV === "production") {
+  console.error(
+    "[seed] BLOQUEADO: npm run db:seed / prisma/seed não pode rodar com NODE_ENV=production (wipeAll apagaria todos os dados).",
+  );
+  process.exit(1);
+}
+
 const prisma = new PrismaClient();
 
 const OWNER_EMAIL =

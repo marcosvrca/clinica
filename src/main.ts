@@ -137,8 +137,9 @@ async function main() {
     const billing = await getClinicBillingInfo(request.auth.clinicId);
     if (billing.billingBlocked) {
       return reply.code(402).send({
-        error:
-          "Assinatura em atraso ou cancelada. Regularize o pagamento para continuar.",
+        error: billing.hasSubscription
+          ? "Assinatura em atraso ou cancelada. Regularize o pagamento para continuar."
+          : "Clínica sem assinatura ativa. Conclua o cadastro/pagamento para continuar.",
         billing,
       });
     }

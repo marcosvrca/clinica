@@ -111,6 +111,25 @@ export function SettingsPage() {
     }
   }
 
+  async function changePlan(planCode: "solo_monthly" | "team_monthly") {
+    setCancelling(true);
+    setError(null);
+    setInfo(null);
+    try {
+      const res = await api.changeBillingPlan(planCode);
+      setBilling(res.billing);
+      setInfo(
+        planCode === "team_monthly"
+          ? "Plano atualizado para Compartilhado."
+          : "Plano atualizado para Individual.",
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha ao alterar plano");
+    } finally {
+      setCancelling(false);
+    }
+  }
+
   async function onInvite(e: FormEvent) {
     e.preventDefault();
     setInviting(true);
@@ -410,10 +429,33 @@ export function SettingsPage() {
           {!billing.canAddProfessional &&
           (billing.maxProfessionals ?? 1) <= 1 ? (
             <p className="muted" style={{ fontSize: "0.875rem" }}>
-              Para incluir mais profissionais, assine o plano Compartilhado
-              (R$ 69,90/mês) — upgrade pago em breve; por enquanto o limite
-              bloqueia novos assentos.
+              {billing.complimentary
+                ? "Para incluir mais profissionais, mude para o plano Compartilhado abaixo."
+                : "Para incluir mais profissionais: cancele esta assinatura e assine de novo em /assine com o plano Compartilhado (R$ 69,90)."}
             </p>
+          ) : null}
+          {stored?.role === "admin" && billing.complimentary ? (
+            <div className="btn-row" style={{ marginTop: "0.75rem" }}>
+              {billing.planCode !== "team_monthly" ? (
+                <button
+                  type="button"
+                  className="btn teal"
+                  disabled={cancelling}
+                  onClick={() => void changePlan("team_monthly")}
+                >
+                  Mudar para Compartilhado
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn ghost"
+                  disabled={cancelling}
+                  onClick={() => void changePlan("solo_monthly")}
+                >
+                  Voltar ao Individual
+                </button>
+              )}
+            </div>
           ) : null}
           {stored?.role === "admin" &&
           !billing.complimentary &&

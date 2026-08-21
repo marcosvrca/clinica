@@ -1,18 +1,18 @@
-# Produção — checklist
+# Produção — checklist (Railway: API + SPA + Postgres + volume uploads)
 
 ## Antes de subir
 
 1. Gere segredos fortes (não use os valores de `.env.example`):
    - `CLINIC_API_KEY` (≥16 chars)
    - `JWT_SECRET` (≥32 chars)
-   - `CLINICAL_ENCRYPTION_KEY` (≥32 chars, **diferente** do JWT)
-2. Defina `CLINIC_ID` com o id da clínica real (obrigatório em `NODE_ENV=production`).
-3. Configure `CORS_ORIGINS`, `PUBLIC_BASE_URL` e `WEB_BASE_URL` com HTTPS (sem `localhost`).
-4. Use Postgres com backup automático (snapshot diário no mínimo).
-5. Coloque TLS na frente (nginx / Caddy / cloud load balancer).
-6. **Não rode `db:seed` em produção** (usuários demo e dados fictícios).
+   - `CLINICAL_ENCRYPTION_KEY` (≥32 chars, **diferente** do JWT) — guarde offline
+2. Defina `CLINIC_ID` com o id da clínica do bot (obrigatório em `NODE_ENV=production`).
+3. Configure `CORS_ORIGINS`, `PUBLIC_BASE_URL` e `WEB_BASE_URL` com **HTTPS** (mesmo domínio no Railway).
+4. Volume Railway montado em `uploads/` (fotos e anexos clínicos).
+5. Postgres com backup automático (snapshot diário no mínimo).
+6. **Nunca rode `db:seed` em produção** — o código aborta com `NODE_ENV=production`, mas não use o comando.
 
-A API **recusa subir** em production se secrets forem de exemplo, `CLINIC_ID` estiver vazio ou CORS for `*`.
+A API **recusa subir** em production se faltar: secrets fortes, `CLINIC_ID`, CORS `*`, URLs localhost/HTTP, webhook secret, Resend, token MP, planos SOLO/TEAM, ou `PAYMENTS_ALLOW_SANDBOX=true`.
 
 ## Banco
 
@@ -21,11 +21,9 @@ A API **recusa subir** em production se secrets forem de exemplo, `CLINIC_ID` es
 npx prisma migrate deploy
 
 # Já existia schema via `db push` (marcar migration inicial como aplicada)
-npx prisma migrate resolve --applied 20260811120000_init
+npx prisma migrate resolve --applied 20260803121500_init
 npx prisma migrate deploy
 ```
-
-Scripts:
 
 | Script | Uso |
 |--------|-----|
@@ -33,56 +31,42 @@ Scripts:
 | `npm run db:migrate:dev` | `prisma migrate dev` (desenvolvimento) |
 | `npm run db:push` | Só local / protótipo — **não use em prod** |
 
-## Docker
+## Railway (recomendado)
+
+1. Serviço Docker (`Dockerfile` / `railway.toml`) = API + `web/dist`
+2. Plugin Postgres → `DATABASE_URL`
+3. Volume → path `uploads` (persistir fotos/docs)
+4. Variáveis: ver README seção Produção + `.env.example`
+5. Healthcheck: `GET /health`
+6. Start: `prisma migrate deploy && node dist/main.js`
+
+## Docker local
 
 ```bash
 cp .env.example .env
 # edite secrets, CLINIC_ID, URLs públicas
-# DATABASE_URL=postgresql://clinica:change-me-db-password@postgres:5432/clinica?schema=public
 docker compose up -d --build
 ```
 
-O entrypoint roda `migrate deploy` e sobe a API na porta 4000.
-Sirva o painel (`web/dist`) via nginx/CDN apontando `/` para o SPA e `/v1` + `/health` para a API — ou copie `web/dist` para o host estático e ajuste `CORS_ORIGINS`.
-
-Volume `clinic_uploads` guarda anexos; faça backup junto com o Postgres.
-
 ## API key do bot
 
-A `CLINIC_API_KEY` só acessa:
+A `CLINIC_API_KEY` só acessa agenda/serviços/lembretes do bot. Prontuário, financeiro e pacientes exigem **JWT**.
 
-- serviços, profissionais, disponibilidade
-- marcar / listar / cancelar / remarcar
-- lembretes `due` / `sent` / `failed`
+## Mercado Pago
 
-Prontuário, financeiro, pacientes e dashboard exigem **JWT do painel**.
-
-## Lembretes WhatsApp
-
-A API expõe a fila; o bot precisa:
-
-1. `GET /v1/reminders/due`
-2. Enviar WhatsApp (texto objetivo, sem clínico)
-3. `POST /v1/reminders/:id/sent` ou `/failed`
-
-No bot (`../bot`): worker `clinic-reminder.worker` já faz o polling.
-Configure `CLINIC_REMINDERS_ENABLED=true` e, se necessário, `CLINIC_REMINDER_TENANT_SLUG`
-(tenant com `evolutionInstance`). Intervalo: `REMINDER_POLL_MS`.
+- Crie dois planos Assinaturas (Individual R$ 39,90 e Compartilhado R$ 69,90)
+- Defina `MERCADOPAGO_PREAPPROVAL_PLAN_ID_SOLO` e `_TEAM`
+- Webhook: `https://SEU_DOMINIO/v1/public/webhooks/mercado_pago?secret=<PAYMENTS_WEBHOOK_SECRET>`
 
 ## Backup (mínimo)
 
 - Postgres: `pg_dump` diário + retenção ≥ 14 dias
 - Volume `uploads/`
-- Guarde `CLINICAL_ENCRYPTION_KEY` fora do servidor (sem ela os prontuários não abrem)
-
-Scripts no repositório:
+- Guarde `CLINICAL_ENCRYPTION_KEY` fora do servidor
 
 ```bash
-# Linux / macOS / Railway shell (com pg_dump)
+# Linux/macOS
 ./scripts/backup-db.sh
-
 # Windows
-.\scripts\backup-db.ps1
+./scripts/backup-db.ps1
 ```
-
-Saída em `backups/clinica-*.sql(.gz)`. Agende no cron / Task Scheduler / job do host.

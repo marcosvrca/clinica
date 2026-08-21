@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install API deps
+        run: npm ci
+      - name: Install web deps
+        run: npm ci --prefix web
+      - name: Prisma generate
+        run: npx prisma generate
+      - name: Typecheck API
+        run: npx tsc --noEmit -p tsconfig.json
+      - name: Typecheck web
+        run: npx tsc --noEmit -p web/tsconfig.json
+      - name: Unit tests
+        run: npx vitest run
+      - name: Build web
+        run: npm run build:web

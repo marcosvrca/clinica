@@ -1179,7 +1179,12 @@ export async function registerRoutes(app: FastifyInstance) {
     }
   });
 
-  app.post("/v1/public/webhooks/:provider", async (request, reply) => {
+  app.post(
+    "/v1/public/webhooks/:provider",
+    {
+      config: { rateLimit: { max: 120, timeWindow: "1 minute" } },
+    },
+    async (request, reply) => {
     try {
       const params = z
         .object({ provider: z.nativeEnum(OnlineProvider) })

@@ -278,12 +278,37 @@ export const api = {
       cancelAtPeriodEnd: boolean;
       complimentary: boolean;
       hasSubscription: boolean;
+      planCode?: string | null;
+      planName?: string | null;
+      maxProfessionals?: number;
+      professionalsUsed?: number;
+      canAddProfessional?: boolean;
     }>("/v1/billing"),
   cancelBilling: () =>
     request<{ ok: true; subscription: SoftwareSubscription }>(
       "/v1/billing/cancel",
       { method: "POST" },
     ),
+  changeBillingPlan: (planCode: "solo_monthly" | "team_monthly") =>
+    request<{
+      ok: true;
+      billing: {
+        billingStatus: "none" | "active" | "past_due" | "cancelled";
+        billingBlocked: boolean;
+        currentPeriodEnd: string | null;
+        cancelAtPeriodEnd: boolean;
+        complimentary: boolean;
+        hasSubscription: boolean;
+        planCode?: string | null;
+        planName?: string | null;
+        maxProfessionals?: number;
+        professionalsUsed?: number;
+        canAddProfessional?: boolean;
+      };
+    }>("/v1/billing/plan", {
+      method: "POST",
+      body: JSON.stringify({ planCode }),
+    }),
   clinic: () => request<Clinic>("/v1/clinic"),
   dashboard: () => request<DashboardData>("/v1/dashboard"),
   patients: () => request<PatientsResponse>("/v1/patients"),

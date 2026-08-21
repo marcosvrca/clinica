@@ -635,7 +635,7 @@ export async function getClinicBillingInfo(
     const max = getSoloPlan().maxProfessionals;
     return {
       billingStatus: "none",
-      billingBlocked: false,
+      billingBlocked: true,
       currentPeriodEnd: null,
       cancelAtPeriodEnd: false,
       complimentary: false,
@@ -644,7 +644,7 @@ export async function getClinicBillingInfo(
       planName: null,
       maxProfessionals: max,
       professionalsUsed,
-      canAddProfessional: professionalsUsed < max,
+      canAddProfessional: false,
     };
   }
 
@@ -677,6 +677,52 @@ export async function getClinicBillingInfo(
     professionalsUsed,
     canAddProfessional: professionalsUsed < maxProfessionals,
   };
+}
+
+export async function changeClinicSaasPlan(
+  clinicId: string,
+  planCode: "solo_monthly" | "team_monthly",
+) {
+  const sub = await prisma.softwareSubscription.findFirst({
+    where: { clinicId },
+  });
+  if (!sub) {
+    throw new SubscriptionError("Assinatura não encontrada para esta clínica", 404);
+  }
+
+  const plan = getSubscriptionPlan(planCode);
+  const complimentary =
+    sub.method === "complimentary" ||
+    sub.billingStatus === SubscriptionBillingStatus.none;
+
+  if (!complimentary) {
+    throw new SubscriptionError(
+      "Contas pagas: cancele a assinatura atual e assine de novo em /assine com o plano desejado (Individual ou Compartilhado).",
+      422,
+    );
+  }
+
+  if (planCode === "solo_monthly") {
+    const used = await countActiveProfessionals(clinicId);
+    if (used > 1) {
+      throw new SubscriptionError(
+        `Há ${used} profissionais ativos. Desative os extras antes de voltar ao Individual (limite 1).`,
+        422,
+      );
+    }
+  }
+
+  await prisma.softwareSubscription.update({
+    where: { id: sub.id },
+    data: {
+      planCode: plan.code,
+      planName: plan.name,
+      // complimentary permanece 0; paid path acima é bloqueado
+      amountCents: complimentary ? 0 : plan.amountCents,
+    },
+  });
+
+  return getClinicBillingInfo(clinicId);
 }
 
 export async function cancelClinicSubscription(clinicId: string) {

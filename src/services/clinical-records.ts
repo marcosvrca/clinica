@@ -159,7 +159,24 @@ export function mapClinicalRecord(r: {
   };
 }
 
-function encryptFields(input: ClinicalWriteFields) {
+function encryptFields(
+  input: ClinicalWriteFields,
+  opts?: { existingRecordingConsent?: boolean },
+) {
+  const nextConsent =
+    input.recordingConsent !== undefined
+      ? input.recordingConsent
+      : opts?.existingRecordingConsent;
+  if (input.audioNotes !== undefined) {
+    const hasAudio = (input.audioNotes ?? "").trim().length > 0;
+    if (hasAudio && nextConsent !== true) {
+      throw new ClinicalRecordError(
+        "Áudio/gravação exige consentimento explícito do paciente (recordingConsent)",
+        422,
+      );
+    }
+  }
+
   return {
     ...(input.sessionNotes !== undefined
       ? { sessionNotes: encryptClinical(input.sessionNotes) }
@@ -183,7 +200,11 @@ function encryptFields(input: ClinicalWriteFields) {
       ? { importantPoints: encryptClinical(input.importantPoints) }
       : {}),
     ...(input.audioNotes !== undefined
-      ? { audioNotes: encryptClinical(input.audioNotes) }
+      ? {
+          audioNotes: encryptClinical(
+            nextConsent === true ? input.audioNotes : null,
+          ),
+        }
       : {}),
     ...(input.diagnosisCid !== undefined
       ? { diagnosisCid: encryptClinical(input.diagnosisCid) }
@@ -195,6 +216,19 @@ function encryptFields(input: ClinicalWriteFields) {
       ? { recordingConsent: input.recordingConsent }
       : {}),
   };
+}
+
+function assertCreateAudioConsent(input: {
+  audioNotes?: string | null;
+  recordingConsent?: boolean;
+}) {
+  const hasAudio = (input.audioNotes ?? "").trim().length > 0;
+  if (hasAudio && input.recordingConsent !== true) {
+    throw new ClinicalRecordError(
+      "Áudio/gravação exige consentimento explícito do paciente (recordingConsent)",
+      422,
+    );
+  }
 }
 
 function hasConfirmableContent(current: {
@@ -319,6 +353,7 @@ export async function createClinicalRecord(input: {
   scopedProfessionalId?: string;
   actor?: ClinicalAuditActor;
 } & ClinicalWriteFields) {
+  assertCreateAudioConsent(input);
   const forcedPro = input.scopedProfessionalId;
   if (forcedPro && input.professionalId && input.professionalId !== forcedPro) {
     throw new ClinicalRecordError(
@@ -376,7 +411,9 @@ export async function createClinicalRecord(input: {
         recurringThemes: encryptClinical(input.recurringThemes ?? null),
         nextInterventions: encryptClinical(input.nextInterventions ?? null),
         importantPoints: encryptClinical(input.importantPoints ?? null),
-        audioNotes: encryptClinical(input.audioNotes ?? null),
+        audioNotes: encryptClinical(
+          input.recordingConsent === true ? (input.audioNotes ?? null) : null,
+        ),
         diagnosisCid: encryptClinical(input.diagnosisCid ?? null),
         diagnosisDsm: encryptClinical(input.diagnosisDsm ?? null),
         recordingConsent: input.recordingConsent ?? false,
@@ -430,7 +467,9 @@ export async function createClinicalRecord(input: {
       recurringThemes: encryptClinical(input.recurringThemes ?? null),
       nextInterventions: encryptClinical(input.nextInterventions ?? null),
       importantPoints: encryptClinical(input.importantPoints ?? null),
-      audioNotes: encryptClinical(input.audioNotes ?? null),
+      audioNotes: encryptClinical(
+        input.recordingConsent === true ? (input.audioNotes ?? null) : null,
+      ),
       diagnosisCid: encryptClinical(input.diagnosisCid ?? null),
       diagnosisDsm: encryptClinical(input.diagnosisDsm ?? null),
       recordingConsent: input.recordingConsent ?? false,
@@ -492,7 +531,9 @@ export async function updateClinicalRecord(input: {
   const updated = await prisma.clinicalRecord.update({
     where: { id: current.id },
     data: {
-      ...encryptFields(input),
+      ...encryptFields(input, {
+        existingRecordingConsent: current.recordingConsent,
+      }),
       ...(nextProId ? { professionalId: nextProId } : {}),
     },
     include: recordInclude,

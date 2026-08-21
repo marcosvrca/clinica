@@ -42,61 +42,62 @@ npx prisma migrate resolve --applied 20260803121500_init
 |-------|-----|
 | API (saúde) | http://localhost:4000/health |
 | Painel web (Vite) | http://localhost:5173 |
-| Login demo (seed) | `ana@bemestar.local` / `demo1234` |
+| Login (após seed local) | Defina `SEED_OWNER_EMAIL` / `SEED_OWNER_PASSWORD` no `.env` |
 | Assinar | http://localhost:5173/assine |
 
-## Produção (Railway + mvflow.com.br)
+## Produção (Railway — tudo no mesmo serviço)
 
 ### Arquitetura
 
 - 1 serviço Docker (`Dockerfile`) = API Fastify + `web/dist` (SPA)
 - Plugin **Postgres** no Railway
-- Domínio custom (ex.: `clinica.mvflow.com.br`) → CNAME do Railway
+- **Volume** em `uploads/` (obrigatório para fotos/docs)
+- Domínio custom → CNAME do Railway
 - Healthcheck: `GET /health`
 
 ### Passos
 
-1. Crie o projeto no Railway, adicione Postgres e conecte este repositório.
+1. Crie o projeto no Railway, adicione Postgres + volume e conecte este repositório.
 2. Variáveis obrigatórias (produção):
 
 | Variável | Valor |
 |----------|--------|
 | `NODE_ENV` | `production` |
 | `DATABASE_URL` | (do plugin Postgres) |
+| `CLINIC_ID` | id da clínica do bot |
 | `CLINIC_API_KEY` | secret ≥ 16 chars |
 | `JWT_SECRET` | secret ≥ 32 chars |
 | `CLINICAL_ENCRYPTION_KEY` | secret ≥ 32 chars (≠ JWT) |
-| `CORS_ORIGINS` | `https://clinica.mvflow.com.br` |
-| `PUBLIC_BASE_URL` | `https://clinica.mvflow.com.br` |
-| `WEB_BASE_URL` | `https://clinica.mvflow.com.br` |
+| `CORS_ORIGINS` | `https://seu-dominio` |
+| `PUBLIC_BASE_URL` | `https://seu-dominio` |
+| `WEB_BASE_URL` | `https://seu-dominio` |
 | `RESEND_API_KEY` / `RESEND_FROM` | Resend (domínio verificado) |
 | `PAYMENTS_WEBHOOK_SECRET` | secret forte |
-| `PAYMENTS_ALLOW_SANDBOX` | `false` (ou `auto`) |
+| `PAYMENTS_ALLOW_SANDBOX` | `auto` ou `false` (nunca `true`) |
 | `MERCADOPAGO_ACCESS_TOKEN` | token **produção** |
-| `MERCADOPAGO_PREAPPROVAL_PLAN_ID` | opcional — id do plano Assinaturas |
-| `COMPLIMENTARY_SIGNUP_EMAILS` | e-mail do usuário sem cobrança |
+| `MERCADOPAGO_PREAPPROVAL_PLAN_ID_SOLO` | plano Individual |
+| `MERCADOPAGO_PREAPPROVAL_PLAN_ID_TEAM` | plano Compartilhado |
+| `PLATFORM_ADMIN_EMAILS` | e-mail do admin da plataforma |
+| `COMPLIMENTARY_SIGNUP_EMAILS` | e-mails sem cobrança (opcional) |
 
-3. Deploy (`railway.toml` usa o Dockerfile). O start roda `prisma migrate deploy` e sobe a API.
-4. DNS: CNAME do subdomínio → Railway; HTTPS automático.
-5. Mercado Pago: ative **Assinaturas** e webhooks →  
-   `https://clinica.mvflow.com.br/v1/public/webhooks/mercado_pago?secret=<PAYMENTS_WEBHOOK_SECRET>`  
-   (Checkout Pro continua só para pagamento de sessão do paciente.)
-6. Bot WhatsApp: `CLINIC_API_URL=https://clinica.mvflow.com.br` + mesma `CLINIC_API_KEY` (+ `CLINIC_ID`).
+3. Deploy (`railway.toml` usa o Dockerfile). O start roda `prisma migrate deploy`.
+4. Mercado Pago webhook →  
+   `https://seu-dominio/v1/public/webhooks/mercado_pago?secret=<PAYMENTS_WEBHOOK_SECRET>`
+5. Bot: `CLINIC_API_URL` + mesma `CLINIC_API_KEY` + `CLINIC_ID`.
 
-### Assinatura SaaS (renovação automática)
+### Assinatura SaaS
 
-- `/assine` cria **preapproval** no Mercado Pago (mensal no cartão).
-- Webhooks renovam `billingStatus` / `currentPeriodEnd`; atraso com grace de 3 dias → depois escritas retornam **402**.
-- Complimentary não cria cobrança MP. Cancelamento: Configurações (admin) → `POST /v1/billing/cancel`.
+- `/assine`: **Individual** (R$ 39,90, 1 profissional) ou **Compartilhado** (R$ 69,90, até 5).
+- Contas cortesia podem mudar o plano em Configurações. Contas pagas: cancelar e reassinar.
+- Atraso com grace de 3 dias → escritas retornam **402**. Clínica sem assinatura também bloqueia escritas.
 
 ### Smoke go-live
 
 1. `GET /health` → 200
-2. Abrir `/assine` no domínio público
-3. Assinar com e-mail em `COMPLIMENTARY_SIGNUP_EMAILS` → e-mail Resend + finalizar cadastro
-4. Assinar com outro e-mail → Assinaturas Mercado Pago → webhook → e-mail de setup
-5. Login JWT no painel
-6. (Opcional) volume persistente Railway para `uploads/`
+2. `/assine` → Individual (complimentary) → e-mail → cadastro → login
+3. Serviço + agendar + foto do paciente
+4. Redeploy e confirmar que a foto permanece (volume)
+5. Assinatura paga de teste (se aplicável)
 
 ### Usuário complimentary
 

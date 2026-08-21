@@ -65,6 +65,14 @@ export async function ensureMercadoPagoPreapprovalPlan(
   const configured = configuredPreapprovalPlanId(planCode);
   if (configured) return configured;
 
+  if (env().NODE_ENV === "production") {
+    throw new Error(
+      planCode === "team_monthly"
+        ? "Defina MERCADOPAGO_PREAPPROVAL_PLAN_ID_TEAM em production"
+        : "Defina MERCADOPAGO_PREAPPROVAL_PLAN_ID_SOLO (ou MERCADOPAGO_PREAPPROVAL_PLAN_ID) em production",
+    );
+  }
+
   const amount = Number(
     ((amountCents ?? env().SUBSCRIPTION_SOLO_AMOUNT_CENTS) / 100).toFixed(2),
   );

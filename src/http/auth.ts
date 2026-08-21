@@ -292,6 +292,41 @@ export async function registerAuthRoutes(app: FastifyInstance) {
       return reply.code(status).send({ error: message });
     }
   });
+
+  app.post("/v1/billing/plan", async (request, reply) => {
+    if (!request.auth || request.auth.kind !== "staff") {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+    if (request.auth.role !== "admin") {
+      return reply
+        .code(403)
+        .send({ error: "Somente administradores podem alterar o plano." });
+    }
+    try {
+      const body = z
+        .object({
+          planCode: z.enum(["solo_monthly", "team_monthly"]),
+        })
+        .parse(request.body);
+      const { changeClinicSaasPlan } = await import(
+        "../services/subscriptions.js"
+      );
+      const billing = await changeClinicSaasPlan(
+        request.auth.clinicId,
+        body.planCode,
+      );
+      return { ok: true, billing };
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return reply.code(400).send({
+          error: err.issues.map((i) => i.message).join("; "),
+        });
+      }
+      const status = (err as { statusCode?: number }).statusCode ?? 500;
+      const message = err instanceof Error ? err.message : "erro";
+      return reply.code(status).send({ error: message });
+    }
+  });
 }
 
 export async function resolveClinicId(request: FastifyRequest): Promise<string | null> {
